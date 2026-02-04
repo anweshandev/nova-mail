@@ -1,0 +1,37 @@
+services:
+  # PMail Backend API
+  pmail-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: pmail-backend
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - JWT_SECRET=${JWT_SECRET:-your-super-secret-jwt-key-change-in-production}
+      - JWT_EXPIRES_IN=7d
+      - CORS_ORIGIN=${CORS_ORIGIN:-http://localhost:5173}
+      - DEFAULT_IMAP_HOST=${DEFAULT_IMAP_HOST:-mail.yourexampledomain.com}
+      - DEFAULT_IMAP_PORT=${DEFAULT_IMAP_PORT:-993}
+      - DEFAULT_SMTP_HOST=${DEFAULT_SMTP_HOST:-mail.yourexampledomain.com}
+      - DEFAULT_SMTP_PORT=${DEFAULT_SMTP_PORT:-587}
+      - AUTOCONFIG_URL=${AUTOCONFIG_URL:-}
+      - AUTODISCOVER_URL=${AUTODISCOVER_URL:-}
+    networks:
+      - pmail-network
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3001/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+networks:
+  pmail-network:
+    driver: bridge
+    # If you need to connect to docker-mailserver on same network:
+    # external: true
+    # name: docker-mailserver_default

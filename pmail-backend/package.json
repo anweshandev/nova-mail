@@ -1,0 +1,43 @@
+{
+  "name": "pmail-backend",
+  "version": "1.0.0",
+  "description": "Backend API for PMail - Gmail clone with IMAP/SMTP support",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "lint": "eslint src/",
+    "test": "node --test"
+  },
+  "keywords": [
+    "email",
+    "imap",
+    "smtp",
+    "mail-client",
+    "api"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.0",
+    "helmet": "^7.1.0",
+    "imap": "^0.8.19",
+    "imapflow": "^1.0.164",
+    "jsonwebtoken": "^9.0.2",
+    "mailparser": "^3.7.1",
+    "morgan": "^1.10.0",
+    "multer": "^1.4.5-lts.1",
+    "nodemailer": "^6.9.15",
+    "uuid": "^10.0.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "eslint": "^9.9.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
