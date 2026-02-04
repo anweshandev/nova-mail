@@ -1,0 +1,18 @@
+# Docker
+node_modules/
+.env
+*.log
+.DS_Store
+coverage/
+dist/
+.vscode/
+*.local
+
+# Docker specific
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+.git
+.gitignore
+README.md
+*.md

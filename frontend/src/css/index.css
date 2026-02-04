@@ -1,0 +1,131 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+	:root {
+		font-family:
+			"Google Sans",
+			"Segoe UI",
+			system-ui,
+			-apple-system,
+			sans-serif;
+		
+		/* Light theme variables */
+		--color-bg-primary: 249 250 251;
+		--color-bg-secondary: 243 244 246;
+		--color-bg-tertiary: 255 255 255;
+		--color-bg-elevated: 255 255 255;
+		--color-bg-hover: 229 231 235;
+		--color-bg-active: 219 234 254;
+		--color-border: 229 231 235;
+		--color-text-primary: 17 24 39;
+		--color-text-secondary: 107 114 128;
+		--color-text-muted: 156 163 175;
+		--color-accent: 59 130 246;
+		--color-accent-hover: 37 99 235;
+	}
+
+	.dark {
+		--color-bg-primary: 17 24 39;
+		--color-bg-secondary: 31 41 55;
+		--color-bg-tertiary: 55 65 81;
+		--color-bg-elevated: 31 41 55;
+		--color-bg-hover: 55 65 81;
+		--color-bg-active: 30 58 138;
+		--color-border: 55 65 81;
+		--color-text-primary: 243 244 246;
+		--color-text-secondary: 156 163 175;
+		--color-text-muted: 107 114 128;
+		--color-accent: 96 165 250;
+		--color-accent-hover: 147 197 253;
+	}
+
+	* {
+		margin: 0;
+		padding: 0;
+		box-sizing: border-box;
+	}
+
+	body {
+		@apply bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 antialiased transition-colors duration-200;
+		min-height: 100vh;
+	}
+
+	#root {
+		min-height: 100vh;
+	}
+
+	/* Custom scrollbar */
+	::-webkit-scrollbar {
+		width: 8px;
+		height: 8px;
+	}
+
+	::-webkit-scrollbar-track {
+		@apply bg-transparent;
+	}
+
+	::-webkit-scrollbar-thumb {
+		@apply bg-gray-300 dark:bg-gray-600 rounded-full;
+	}
+
+	::-webkit-scrollbar-thumb:hover {
+		@apply bg-gray-400 dark:bg-gray-500;
+	}
+}
+
+@layer components {
+	/* Email content styles */
+	.email-content {
+		@apply prose prose-sm dark:prose-invert max-w-none;
+	}
+
+	.email-content img {
+		@apply max-w-full h-auto;
+	}
+
+	/* Compose modal animation */
+	.compose-modal {
+		animation: slideUp 0.2s ease-out;
+	}
+
+	@keyframes slideUp {
+		from {
+			opacity: 0;
+			transform: translateY(20px);
+		}
+		to {
+			opacity: 1;
+			transform: translateY(0);
+		}
+	}
+
+	/* Refresh spin animation */
+	.animate-spin-once {
+		animation: spin 0.8s ease-in-out;
+	}
+
+	@keyframes spin {
+		from {
+			transform: rotate(0deg);
+		}
+		to {
+			transform: rotate(360deg);
+		}
+	}
+
+	/* Sidebar hover effect */
+	.sidebar-item {
+		@apply relative overflow-hidden;
+	}
+
+	.sidebar-item::before {
+		content: "";
+		@apply absolute inset-0 bg-black dark:bg-white opacity-0 transition-opacity duration-200;
+	}
+
+	.sidebar-item:hover::before {
+		@apply opacity-5;
+	}
+}

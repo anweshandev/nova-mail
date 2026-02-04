@@ -1,469 +1,325 @@
-# pmail
+<p align="center">
+  <img src="frontend/public/images/nova-logo.svg" alt="NovaMail Logo" width="120" height="120">
+</p>
 
-A comprehensive email solution for modern applications.
+<h1 align="center">✨ NovaMail</h1>
 
-## Table of Contents
+<p align="center">
+  <strong>A blazing-fast, open-source email client for the modern web</strong>
+</p>
 
-- [Overview](#overview)
-- [Features](#features)
-- [Installation](#installation)
-- [Configuration](#configuration)
-- [Usage](#usage)
-- [API Reference](#api-reference)
-- [Architecture](#architecture)
-- [Contributing](#contributing)
-- [Testing](#testing)
-- [Troubleshooting](#troubleshooting)
-- [License](#license)
+<p align="center">
+  <a href="#features">Features</a> •
+  <a href="#quick-start">Quick Start</a> •
+  <a href="#architecture">Architecture</a> •
+  <a href="#documentation">Documentation</a> •
+  <a href="#contributing">Contributing</a>
+</p>
 
-## Overview
+<p align="center">
+  <img alt="License" src="https://img.shields.io/badge/license-MIT-blue.svg">
+  <img alt="PRs Welcome" src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg">
+  <img alt="Open Source" src="https://img.shields.io/badge/Open%20Source-%E2%9D%A4-red">
+</p>
 
-pmail is a robust, scalable email management solution designed to streamline email operations for developers and organizations. Built with performance and reliability in mind, pmail provides a complete toolkit for sending, receiving, and managing emails programmatically.
+---
 
-## Features
+## 🌟 Overview
 
-### Core Features
+**NovaMail** is a sleek, self-hosted email client designed to give you a Gmail-like experience with any IMAP/SMTP mail server. Built for developers, privacy enthusiasts, and anyone who wants full control over their email workflow.
 
-- **Email Sending**: Send plain text and HTML emails with attachments
-- **Email Receiving**: IMAP/POP3 support for retrieving emails
-- **Template Engine**: Built-in templating system for dynamic email content
-- **Queue Management**: Asynchronous email processing with queue support
-- **Attachment Handling**: Support for multiple file types and sizes
+Whether you're running [docker-mailserver](https://docker-mailserver.github.io/docker-mailserver/), your own Postfix setup, or connecting to any standard mail server, NovaMail provides a beautiful, responsive interface that just works.
 
-### Advanced Features
+### Why NovaMail?
 
-- **Rate Limiting**: Configurable rate limits to prevent spam detection
-- **Retry Logic**: Automatic retry mechanism for failed deliveries
-- **Logging & Analytics**: Comprehensive logging and delivery tracking
-- **Multi-Provider Support**: Compatible with SMTP, SendGrid, Mailgun, AWS SES
-- **Encryption**: TLS/SSL support for secure communications
+- 🔓 **Fully Open Source** - MIT licensed, forever free
+- 🏠 **Self-Hosted** - Your data, your server, your rules
+- 🚀 **Modern Stack** - React + Node.js + Express
+- 🔌 **Universal Compatibility** - Works with any IMAP/SMTP server
+- 🎨 **Beautiful UI** - Clean, responsive Gmail-inspired design
+- 🌙 **Dark Mode** - Easy on the eyes, day or night
+- ⚡ **Blazing Fast** - Optimized for performance
 
-## Installation
+## ✨ Features
+
+### 📧 Core Email Features
+- **Compose & Send** - Rich text editor with HTML support
+- **Read & Reply** - Threaded conversations and inline replies
+- **Attachments** - Upload, download, and preview files
+- **Search** - Full-text search across all emails
+- **Labels & Folders** - Organize with custom labels and folders
+- **Star & Archive** - Quick actions for email management
+
+### 🔐 Security & Authentication
+- **JWT Authentication** - Secure token-based auth
+- **TLS/SSL Support** - Encrypted connections to mail servers
+- **No Password Storage** - Credentials encrypted in tokens only
+- **Rate Limiting** - Built-in protection against abuse
+
+### 🎨 User Experience
+- **Responsive Design** - Works on desktop, tablet, and mobile
+- **Dark/Light Themes** - System-aware theming
+- **Keyboard Shortcuts** - Navigate like a pro
+- **Auto-Configuration** - Automatic server discovery via Mozilla Autoconfig
+
+### 🐳 Deployment
+- **Docker Ready** - One-command deployment
+- **Docker Compose** - Full stack in seconds
+- **Environment Config** - Easy configuration via `.env`
+- **Health Checks** - Built-in monitoring endpoints
+
+## 🚀 Quick Start
 
 ### Prerequisites
 
-- Node.js >= 16.0.0
-- npm >= 8.0.0 or yarn >= 1.22.0
+- Node.js 20+ (for local development)
+- Docker & Docker Compose (for containerized deployment)
+- Access to an IMAP/SMTP mail server
 
-### Package Installation
-
-```bash
-# Using npm
-npm install pmail
-
-# Using yarn
-yarn add pmail
-```
-
-### From Source
+### Option 1: Docker Compose (Recommended)
 
 ```bash
-git clone https://github.com/username/pmail.git
-cd pmail
-npm install
-npm run build
+# Clone the repository
+git clone https://github.com/yourusername/novamail.git
+cd novamail
+
+# Configure environment
+cp backend/.env.example backend/.env
+# Edit .env with your settings
+
+# Launch the stack
+docker-compose up -d
+
+# Access NovaMail at http://localhost:5173
 ```
 
-## Configuration
+### Option 2: Local Development
 
-### Environment Variables
+```bash
+# Clone the repository
+git clone https://github.com/yourusername/novamail.git
+cd novamail
 
-Create a `.env` file in your project root:
+# Backend Setup
+cd backend
+pnpm install
+cp .env.example .env
+# Edit .env with your JWT_SECRET and mail server settings
+pnpm dev
 
-```env
-PMAIL_SMTP_HOST=smtp.example.com
-PMAIL_SMTP_PORT=587
-PMAIL_SMTP_USER=your-username
-PMAIL_SMTP_PASSWORD=your-password
-PMAIL_FROM_EMAIL=noreply@example.com
-PMAIL_FROM_NAME=Your Application
-PMAIL_TLS_ENABLED=true
-PMAIL_DEBUG=false
+# Frontend Setup (new terminal)
+cd frontend
+pnpm install
+pnpm dev
+
+# Access NovaMail at http://localhost:5173
 ```
 
-### Configuration File
-
-Alternatively, create a `pmail.config.js`:
-
-```javascript
-module.exports = {
-	smtp: {
-		host: 'smtp.example.com',
-		port: 587,
-		secure: false,
-		auth: {
-			user: 'your-username',
-			pass: 'your-password'
-		}
-	},
-	defaults: {
-		from: '"Your Application" <noreply@example.com>'
-	},
-	queue: {
-		enabled: true,
-		concurrency: 5,
-		retryAttempts: 3,
-		retryDelay: 5000
-	},
-	logging: {
-		level: 'info',
-		file: './logs/pmail.log'
-	}
-};
-```
-
-## Usage
-
-### Basic Email Sending
-
-```javascript
-const pmail = require('pmail');
-
-// Initialize the client
-const mailer = new pmail.Client();
-
-// Send a simple email
-await mailer.send({
-	to: 'recipient@example.com',
-	subject: 'Hello from pmail',
-	text: 'This is a plain text email.',
-	html: '<h1>Hello!</h1><p>This is an HTML email.</p>'
-});
-```
-
-### Using Templates
-
-```javascript
-const pmail = require('pmail');
-
-const mailer = new pmail.Client();
-
-// Register a template
-mailer.registerTemplate('welcome', {
-	subject: 'Welcome to {{appName}}!',
-	html: `
-		<h1>Welcome, {{userName}}!</h1>
-		<p>Thank you for joining {{appName}}.</p>
-		<a href="{{confirmLink}}">Confirm your email</a>
-	`
-});
-
-// Send using template
-await mailer.sendTemplate('welcome', {
-	to: 'newuser@example.com',
-	data: {
-		appName: 'My Application',
-		userName: 'John Doe',
-		confirmLink: 'https://example.com/confirm/abc123'
-	}
-});
-```
-
-### Sending Attachments
-
-```javascript
-await mailer.send({
-	to: 'recipient@example.com',
-	subject: 'Document Attached',
-	text: 'Please find the document attached.',
-	attachments: [
-		{
-			filename: 'document.pdf',
-			path: './files/document.pdf'
-		},
-		{
-			filename: 'data.json',
-			content: JSON.stringify({ key: 'value' }),
-			contentType: 'application/json'
-		}
-	]
-});
-```
-
-### Bulk Email Sending
-
-```javascript
-const recipients = [
-	{ email: 'user1@example.com', name: 'User 1' },
-	{ email: 'user2@example.com', name: 'User 2' },
-	{ email: 'user3@example.com', name: 'User 3' }
-];
-
-await mailer.sendBulk({
-	recipients,
-	subject: 'Newsletter',
-	template: 'newsletter',
-	data: {
-		date: new Date().toLocaleDateString()
-	}
-});
-```
-
-## API Reference
-
-### Client Class
-
-#### Constructor
-
-```javascript
-new pmail.Client(options?)
-```
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `options` | `Object` | Optional configuration object |
-| `options.config` | `string` | Path to configuration file |
-| `options.provider` | `string` | Email provider (smtp, sendgrid, mailgun, ses) |
-
-#### Methods
-
-##### `send(message)`
-
-Sends an email message.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `message.to` | `string \| string[]` | Yes | Recipient email(s) |
-| `message.cc` | `string \| string[]` | No | CC recipient(s) |
-| `message.bcc` | `string \| string[]` | No | BCC recipient(s) |
-| `message.subject` | `string` | Yes | Email subject |
-| `message.text` | `string` | No | Plain text body |
-| `message.html` | `string` | No | HTML body |
-| `message.attachments` | `Attachment[]` | No | File attachments |
-
-**Returns**: `Promise<SendResult>`
-
-##### `sendTemplate(templateName, options)`
-
-Sends an email using a registered template.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `templateName` | `string` | Yes | Name of registered template |
-| `options.to` | `string \| string[]` | Yes | Recipient email(s) |
-| `options.data` | `Object` | No | Template variables |
-
-**Returns**: `Promise<SendResult>`
-
-##### `registerTemplate(name, template)`
-
-Registers an email template.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `name` | `string` | Yes | Template identifier |
-| `template.subject` | `string` | Yes | Subject template |
-| `template.html` | `string` | No | HTML template |
-| `template.text` | `string` | No | Text template |
-
-##### `verify()`
-
-Verifies the SMTP connection.
-
-**Returns**: `Promise<boolean>`
-
-### Types
-
-```typescript
-interface SendResult {
-	messageId: string;
-	accepted: string[];
-	rejected: string[];
-	response: string;
-}
-
-interface Attachment {
-	filename: string;
-	content?: string | Buffer;
-	path?: string;
-	contentType?: string;
-	encoding?: string;
-}
-```
-
-## Architecture
+## 🏗️ Architecture
 
 ```
-pmail/
-├── src/
-│   ├── client/
-│   │   ├── Client.js          # Main client class
-│   │   └── index.js
-│   ├── providers/
-│   │   ├── SMTPProvider.js    # SMTP implementation
-│   │   ├── SendGridProvider.js
-│   │   ├── MailgunProvider.js
-│   │   └── SESProvider.js
-│   ├── templates/
-│   │   ├── Engine.js          # Template engine
-│   │   └── helpers.js
-│   ├── queue/
-│   │   ├── Queue.js           # Queue manager
-│   │   └── Worker.js
-│   ├── utils/
-│   │   ├── logger.js
-│   │   ├── validator.js
-│   │   └── sanitizer.js
-│   └── index.js
-├── tests/
-├── examples/
-├── docs/
-├── package.json
+┌─────────────────────────────────────────────────────────────────┐
+│                        NovaMail Stack                           │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  ┌──────────────┐     ┌──────────────────┐     ┌─────────────┐ │
+│  │              │     │                  │     │             │ │
+│  │   Frontend   │────▶│     Backend      │────▶│ Mail Server │ │
+│  │   (React)    │◀────│   (Express.js)   │◀────│ (IMAP/SMTP) │ │
+│  │              │     │                  │     │             │ │
+│  └──────────────┘     └──────────────────┘     └─────────────┘ │
+│        :5173                 :3001              :993/:587      │
+│                                │                               │
+│                    ┌───────────┴───────────┐                   │
+│                    │                       │                   │
+│              ┌─────▼─────┐           ┌─────▼─────┐             │
+│              │   IMAP    │           │   SMTP    │             │
+│              │  Service  │           │  Service  │             │
+│              └───────────┘           └───────────┘             │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Tech Stack
+
+| Layer | Technology |
+|-------|------------|
+| **Frontend** | React 19, Vite, Tailwind CSS, Zustand |
+| **Backend** | Node.js, Express.js, IMAPFlow |
+| **Auth** | JWT (JSON Web Tokens) |
+| **Protocols** | IMAP (receiving), SMTP (sending) |
+| **Containerization** | Docker, Docker Compose |
+
+## 📁 Project Structure
+
+```
+novamail/
+├── frontend/                # React frontend application
+│   ├── src/
+│   │   ├── components/      # Reusable UI components
+│   │   ├── pages/           # Page components
+│   │   ├── services/        # API client
+│   │   └── store/           # Zustand state management
+│   └── public/              # Static assets
+│
+├── backend/                 # Express.js API server
+│   ├── src/
+│   │   ├── routes/          # API endpoints
+│   │   ├── services/        # IMAP/SMTP services
+│   │   └── middleware/      # Auth, rate limiting
+│   ├── Dockerfile
+│   └── docker-compose.yml
+│
+├── LICENSE.md
 └── README.md
 ```
 
-### Component Overview
+## 📖 Documentation
 
-| Component | Description |
-|-----------|-------------|
-| **Client** | Main entry point for all email operations |
-| **Providers** | Adapters for different email service providers |
-| **Templates** | Mustache-based templating system |
-| **Queue** | Background job processing for async emails |
-| **Utils** | Helper functions and utilities |
+### Configuration
 
-## Contributing
+#### Environment Variables (Backend)
 
-We welcome contributions! Please follow these guidelines:
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `PORT` | API server port | `3001` |
+| `JWT_SECRET` | Secret for JWT signing | (required) |
+| `JWT_EXPIRES_IN` | Token expiration | `7d` |
+| `CORS_ORIGIN` | Allowed frontend origin | `http://localhost:5173` |
+| `DEFAULT_IMAP_HOST` | Default IMAP server | - |
+| `DEFAULT_IMAP_PORT` | Default IMAP port | `993` |
+| `DEFAULT_SMTP_HOST` | Default SMTP server | - |
+| `DEFAULT_SMTP_PORT` | Default SMTP port | `587` |
+
+#### Environment Variables (Frontend)
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `VITE_API_URL` | Backend API URL | `http://localhost:3001/api` |
+| `VITE_APP_NAME` | Application name | `NovaMail` |
+
+### API Endpoints
+
+#### Authentication
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/auth/login` | Authenticate with email credentials |
+| `POST` | `/api/auth/verify` | Verify JWT token |
+| `POST` | `/api/auth/autoconfig` | Auto-discover mail server settings |
+
+#### Emails
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/emails` | List emails in folder |
+| `GET` | `/api/emails/:folder/:uid` | Get single email |
+| `POST` | `/api/emails/send` | Send new email |
+| `PATCH` | `/api/emails/:folder/:uid/read` | Mark read/unread |
+| `DELETE` | `/api/emails/:folder/:uid` | Delete email |
+
+#### Folders
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/folders` | List all folders |
+| `POST` | `/api/folders` | Create new folder |
+| `DELETE` | `/api/folders/:path` | Delete folder |
+
+### Using with docker-mailserver
+
+NovaMail pairs perfectly with [docker-mailserver](https://docker-mailserver.github.io/docker-mailserver/):
+
+```env
+# In your .env file
+DEFAULT_IMAP_HOST=mail.yourdomain.com
+DEFAULT_IMAP_PORT=993
+DEFAULT_SMTP_HOST=mail.yourdomain.com
+DEFAULT_SMTP_PORT=587
+```
+
+For same Docker network deployment:
+
+```env
+DEFAULT_IMAP_HOST=mailserver
+DEFAULT_SMTP_HOST=mailserver
+```
+
+## 🤝 Contributing
+
+We love contributions! NovaMail is built by the community, for the community.
 
 ### Getting Started
 
-1. Fork the repository
-2. Clone your fork: `git clone https://github.com/your-username/pmail.git`
-3. Create a branch: `git checkout -b feature/your-feature`
-4. Install dependencies: `npm install`
-5. Make your changes
-6. Run tests: `npm test`
-7. Commit: `git commit -m "Add your feature"`
-8. Push: `git push origin feature/your-feature`
-9. Open a Pull Request
+1. **Fork** the repository
+2. **Clone** your fork: `git clone https://github.com/your-username/novamail.git`
+3. **Create** a branch: `git checkout -b feature/amazing-feature`
+4. **Make** your changes
+5. **Test** your changes
+6. **Commit**: `git commit -m 'feat: add amazing feature'`
+7. **Push**: `git push origin feature/amazing-feature`
+8. **Open** a Pull Request
 
-### Code Style
+### Commit Convention
 
-- Use ESLint configuration provided
-- Follow existing code patterns
-- Add JSDoc comments for public methods
-- Write unit tests for new features
+We follow [Conventional Commits](https://www.conventionalcommits.org/):
 
-### Commit Messages
-
-Follow conventional commits:
-
-- `feat:` New feature
-- `fix:` Bug fix
-- `docs:` Documentation changes
-- `test:` Test additions/changes
+- `feat:` New features
+- `fix:` Bug fixes
+- `docs:` Documentation
+- `style:` Code style changes
 - `refactor:` Code refactoring
-- `chore:` Maintenance tasks
+- `test:` Tests
+- `chore:` Maintenance
 
-## Testing
-
-### Running Tests
+### Development Tips
 
 ```bash
-# Run all tests
-npm test
+# Run frontend in dev mode
+cd frontend && pnpm dev
 
-# Run with coverage
-npm run test:coverage
+# Run backend in dev mode (with auto-reload)
+cd backend && pnpm dev
 
-# Run specific test file
-npm test -- --grep "Client"
-
-# Watch mode
-npm run test:watch
+# Run linting
+pnpm lint
 ```
 
-### Test Structure
-
-```
-tests/
-├── unit/
-│   ├── client.test.js
-│   ├── providers.test.js
-│   └── templates.test.js
-├── integration/
-│   └── smtp.test.js
-└── fixtures/
-		└── emails.json
-```
-
-## Troubleshooting
+## 🐛 Troubleshooting
 
 ### Common Issues
 
-#### Connection Timeout
-
+#### Connection Refused
 ```
-Error: Connection timeout
+Error: Connection refused to mail server
 ```
-
-**Solution**: Check your SMTP host and port settings. Ensure firewall allows outbound connections on the specified port.
+**Solution**: Verify your IMAP/SMTP host and port settings. Check firewall rules.
 
 #### Authentication Failed
-
 ```
-Error: Invalid login
+Error: Invalid credentials
 ```
+**Solution**: Double-check your email password. Some providers require app-specific passwords.
 
-**Solution**: Verify your credentials. For Gmail, enable "Less secure app access" or use App Passwords.
-
-#### Rate Limiting
-
+#### CORS Errors
 ```
-Error: Too many requests
+Error: CORS policy blocked
 ```
-
-**Solution**: Enable queue mode and configure appropriate rate limits:
-
-```javascript
-const mailer = new pmail.Client({
-	queue: {
-		enabled: true,
-		rateLimit: {
-			max: 100,
-			duration: 60000 // 100 emails per minute
-		}
-	}
-});
-```
-
-#### TLS Certificate Errors
-
-```
-Error: self signed certificate
-```
-
-**Solution**: For development, you can disable TLS verification (not recommended for production):
-
-```javascript
-const mailer = new pmail.Client({
-	smtp: {
-		tls: {
-			rejectUnauthorized: false
-		}
-	}
-});
-```
+**Solution**: Ensure `CORS_ORIGIN` in backend `.env` matches your frontend URL.
 
 ### Debug Mode
 
-Enable debug logging for detailed information:
+Enable verbose logging:
 
-```javascript
-const mailer = new pmail.Client({
-	debug: true,
-	logging: {
-		level: 'debug'
-	}
-});
+```env
+NODE_ENV=development
 ```
 
-## License
+## 📄 License
 
+NovaMail is open-source software licensed under the [MIT License](LICENSE.md).
+
+```
 MIT License
 
-Copyright (c) 2024 pmail
+Copyright (c) 2024 NovaMail Contributors
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -477,14 +333,17 @@ copies or substantial portions of the Software.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+```
 
 ---
 
-**Made with ❤️ by the pmail team**
+<p align="center">
+  <strong>✨ Made with ❤️ by the NovaMail community ✨</strong>
+</p>
 
-[Report Bug](https://github.com/username/pmail/issues) · [Request Feature](https://github.com/username/pmail/issues) · [Documentation](https://pmail.dev/docs)
+<p align="center">
+  <a href="https://github.com/yourusername/novamail/issues">Report Bug</a> •
+  <a href="https://github.com/yourusername/novamail/issues">Request Feature</a> •
+  <a href="https://github.com/yourusername/novamail/stargazers">⭐ Star Us</a>
+</p>
