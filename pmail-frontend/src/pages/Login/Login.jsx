@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Mail, Lock, Server, Eye, EyeOff, Loader2, Sun, Moon } from 'lucide-react';
+import { Mail, Lock, Server, Eye, EyeOff, Loader2, Sun, Moon, CheckCircle, AlertCircle } from 'lucide-react';
 import { useAuthStore } from '../../store/authStore';
 import { useThemeStore } from '../../store/themeStore';
+import { authApi } from '../../services/api';
 import toast from 'react-hot-toast';
 
 export default function Login() {
@@ -20,22 +21,59 @@ export default function Login() {
     smtpPort: '587',
   });
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [autoConfigStatus, setAutoConfigStatus] = useState(null); // null, 'loading', 'found', 'fallback', 'error'
+  const [autoConfigSource, setAutoConfigSource] = useState('');
 
   const handleChange = (e) => {
     const { name, value } = e.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
+  };
 
-    // Auto-fill server settings based on email domain
-    if (name === 'email' && value.includes('@')) {
-      const domain = value.split('@')[1];
-      if (domain && !formData.imapServer && !formData.smtpServer) {
-        // Default to mail.domain.com pattern
+  // Fetch autoconfig when email field loses focus
+  const handleEmailBlur = async () => {
+    const email = formData.email;
+    if (!email || !email.includes('@')) return;
+    
+    // Don't auto-discover if user has manually set servers
+    if (formData.imapServer || formData.smtpServer) return;
+    
+    setAutoConfigStatus('loading');
+    
+    try {
+      const result = await authApi.autoconfig(email);
+      
+      if (result.found && result.config) {
+        setFormData((prev) => ({
+          ...prev,
+          imapServer: result.config.imap.host || prev.imapServer,
+          imapPort: String(result.config.imap.port || 993),
+          smtpServer: result.config.smtp.host || prev.smtpServer,
+          smtpPort: String(result.config.smtp.port || 587),
+        }));
+        setAutoConfigStatus('found');
+        setAutoConfigSource(result.source);
+      } else {
+        // Fallback to mail.domain.com
+        const domain = email.split('@')[1];
         setFormData((prev) => ({
           ...prev,
           imapServer: `mail.${domain}`,
           smtpServer: `mail.${domain}`,
         }));
+        setAutoConfigStatus('fallback');
+        setAutoConfigSource('domain');
       }
+    } catch (err) {
+      console.error('Autoconfig failed:', err);
+      // Fallback to mail.domain.com
+      const domain = email.split('@')[1];
+      setFormData((prev) => ({
+        ...prev,
+        imapServer: `mail.${domain}`,
+        smtpServer: `mail.${domain}`,
+      }));
+      setAutoConfigStatus('fallback');
+      setAutoConfigSource('domain');
     }
   };
 
@@ -47,13 +85,14 @@ export default function Login() {
       return;
     }
 
+    // Server settings are optional - backend will auto-discover if not provided
     const result = await login({
       email: formData.email,
       password: formData.password,
-      imapServer: formData.imapServer,
-      imapPort: parseInt(formData.imapPort),
-      smtpServer: formData.smtpServer,
-      smtpPort: parseInt(formData.smtpPort),
+      ...(formData.imapServer && { imapServer: formData.imapServer }),
+      ...(formData.imapPort && { imapPort: parseInt(formData.imapPort) }),
+      ...(formData.smtpServer && { smtpServer: formData.smtpServer }),
+      ...(formData.smtpPort && { smtpPort: parseInt(formData.smtpPort) }),
     });
 
     if (result.success) {
@@ -105,10 +144,25 @@ export default function Login() {
                   name="email"
                   value={formData.email}
                   onChange={handleChange}
+                  onBlur={handleEmailBlur}
                   placeholder="you@example.com"
-                  className="w-full pl-10 pr-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400"
+                  className="w-full pl-10 pr-10 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400"
                   required
                 />
+                {/* Autoconfig status indicator */}
+                {autoConfigStatus && (
+                  <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                    {autoConfigStatus === 'loading' && (
+                      <Loader2 className="w-5 h-5 text-blue-500 animate-spin" />
+                    )}
+                    {autoConfigStatus === 'found' && (
+                      <CheckCircle className="w-5 h-5 text-green-500" title={`Server settings auto-discovered via ${autoConfigSource}`} />
+                    )}
+                    {autoConfigStatus === 'fallback' && (
+                      <AlertCircle className="w-5 h-5 text-yellow-500" title="Using default server settings" />
+                    )}
+                  </div>
+                )}
               </div>
             </div>
 
