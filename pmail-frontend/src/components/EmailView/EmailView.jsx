@@ -42,11 +42,14 @@ export default function EmailView() {
     markAsRead,
     markAsUnread,
     reportSpam,
+    reportNotSpam,
     restoreEmail,
     labels,
     addLabel,
     removeLabel,
     selectedFolder,
+    emptyTrash,
+    emptySpam,
   } = useEmailStore();
 
   const [showLabelMenu, setShowLabelMenu] = useState(false);
@@ -148,9 +151,29 @@ export default function EmailView() {
     setShowMoreMenu(false);
   };
 
+  const handleNotSpam = () => {
+    reportNotSpam(selectedEmail.id);
+    toast.success('Marked as not spam, moved to inbox');
+    setShowMoreMenu(false);
+  };
+
   const handleRestore = () => {
     restoreEmail(selectedEmail.id);
     toast.success('Restored to inbox');
+  };
+
+  const handleEmptyTrash = () => {
+    if (window.confirm('Permanently delete all messages in Trash?')) {
+      emptyTrash();
+      toast.success('Trash emptied');
+    }
+  };
+
+  const handleEmptySpam = () => {
+    if (window.confirm('Permanently delete all messages in Spam?')) {
+      emptySpam();
+      toast.success('Spam emptied');
+    }
   };
 
   const handleToggleLabel = (labelId) => {
@@ -289,13 +312,41 @@ export default function EmailView() {
             <>
               <div className="fixed inset-0 z-10" onClick={() => setShowMoreMenu(false)} />
               <div className="absolute right-0 top-full mt-1 w-48 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 z-20 py-2">
-                <button
-                  onClick={handleReportSpam}
-                  className="w-full flex items-center gap-3 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
-                >
-                  <AlertOctagon className="w-4 h-4" />
-                  Report spam
-                </button>
+                {isSpam ? (
+                  <button
+                    onClick={handleNotSpam}
+                    className="w-full flex items-center gap-3 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+                  >
+                    <Mail className="w-4 h-4" />
+                    Not spam
+                  </button>
+                ) : (
+                  <button
+                    onClick={handleReportSpam}
+                    className="w-full flex items-center gap-3 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+                  >
+                    <AlertOctagon className="w-4 h-4" />
+                    Report spam
+                  </button>
+                )}
+                {isTrash && (
+                  <button
+                    onClick={handleEmptyTrash}
+                    className="w-full flex items-center gap-3 px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-gray-700"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    Empty trash
+                  </button>
+                )}
+                {isSpam && (
+                  <button
+                    onClick={handleEmptySpam}
+                    className="w-full flex items-center gap-3 px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-gray-700"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    Empty spam
+                  </button>
+                )}
               </div>
             </>
           )}

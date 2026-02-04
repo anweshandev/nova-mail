@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Menu, Search, Settings, HelpCircle, LogOut, User, Moon, Sun, Monitor } from 'lucide-react';
+import { Menu, Search, Settings, HelpCircle, LogOut, User, Moon, Sun, Monitor, RefreshCw } from 'lucide-react';
 import { useAuthStore } from '../../store/authStore';
 import { useEmailStore } from '../../store/emailStore';
 import { useThemeStore } from '../../store/themeStore';
@@ -13,16 +13,26 @@ const getAvatarUrl = (seed, size = 40) => {
 export default function Header() {
   const navigate = useNavigate();
   const { user, logout } = useAuthStore();
-  const { searchQuery, setSearchQuery } = useEmailStore();
+  const { searchQuery, setSearchQuery, refreshEmails, isLoading, syncStatus } = useEmailStore();
   const { theme, setTheme } = useThemeStore();
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showThemeMenu, setShowThemeMenu] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   const avatarSeed = user?.email || user?.name || 'default';
 
   const handleLogout = () => {
     logout();
     navigate('/login');
+  };
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      await refreshEmails();
+    } finally {
+      setIsRefreshing(false);
+    }
   };
 
   const themeOptions = [
@@ -66,6 +76,15 @@ export default function Header() {
 
       {/* Right Actions */}
       <div className="flex items-center gap-1 flex-shrink-0">
+        {/* Refresh Button */}
+        <button 
+          onClick={handleRefresh}
+          disabled={isRefreshing || isLoading}
+          className="p-2.5 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full transition-colors flex items-center justify-center disabled:opacity-50"
+          title={syncStatus?.lastSync ? `Last synced: ${new Date(syncStatus.lastSync).toLocaleTimeString()}` : 'Refresh emails'}
+        >
+          <RefreshCw className={`w-5 h-5 text-gray-600 dark:text-gray-300 ${isRefreshing ? 'animate-spin' : ''}`} />
+        </button>
         <button className="p-2.5 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full transition-colors hidden sm:flex items-center justify-center">
           <HelpCircle className="w-5 h-5 text-gray-600 dark:text-gray-300" />
         </button>

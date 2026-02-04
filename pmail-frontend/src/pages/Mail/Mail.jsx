@@ -17,10 +17,42 @@ export default function Mail() {
     openCompose,
     markAsRead,
     markAsUnread,
+    fetchEmails,
+    fetchFolders,
+    fetchUnreadCounts,
+    startPolling,
+    stopPolling,
+    selectedFolder,
   } = useEmailStore();
 
   const { readingPane } = useSettingsStore();
   const emails = getFilteredEmails();
+
+  // Fetch emails and folders on mount, start polling
+  useEffect(() => {
+    const initializeMailbox = async () => {
+      try {
+        await Promise.all([
+          fetchFolders(),
+          fetchEmails(selectedFolder),
+          fetchUnreadCounts(),
+        ]);
+      } catch (error) {
+        console.error('Failed to initialize mailbox:', error);
+        toast.error('Failed to load emails');
+      }
+    };
+
+    initializeMailbox();
+    
+    // Start polling for new emails every 2 minutes
+    startPolling(120000);
+    
+    // Cleanup polling on unmount
+    return () => {
+      stopPolling();
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Keyboard shortcuts
   const handleKeyDown = useCallback((e) => {

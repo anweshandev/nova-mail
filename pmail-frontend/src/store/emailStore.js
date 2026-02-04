@@ -245,6 +245,78 @@ export const useEmailStore = create((set, get) => ({
   searchResults: null,
   error: null,
   isApiEnabled: true, // Set to false to use mock data
+  syncStatus: null, // { folder, uidNext, lastSync }
+  unreadCounts: {}, // { folderPath: { unseen, total } }
+  pollingInterval: null, // For auto-refresh
+
+  // Polling / Sync
+  startPolling: (intervalMs = 60000) => {
+    const { pollingInterval } = get();
+    if (pollingInterval) return; // Already polling
+    
+    const interval = setInterval(() => {
+      get().syncEmails();
+    }, intervalMs);
+    
+    set({ pollingInterval: interval });
+  },
+
+  stopPolling: () => {
+    const { pollingInterval } = get();
+    if (pollingInterval) {
+      clearInterval(pollingInterval);
+      set({ pollingInterval: null });
+    }
+  },
+
+  syncEmails: async () => {
+    const { isApiEnabled, selectedFolder, syncStatus } = get();
+    if (!isApiEnabled) return;
+    
+    try {
+      const uidNext = syncStatus?.folder === selectedFolder ? syncStatus.uidNext : null;
+      const result = await emailsApi.sync(selectedFolder, uidNext);
+      
+      if (result.hasNew && result.newEmails?.length > 0) {
+        // Prepend new emails to the list
+        set((state) => ({
+          emails: [...result.newEmails, ...state.emails],
+        }));
+      }
+      
+      set({
+        syncStatus: {
+          folder: selectedFolder,
+          uidNext: result.uidNext,
+          lastSync: new Date(),
+          unseen: result.unseen,
+          total: result.total,
+        },
+      });
+      
+      return result;
+    } catch (error) {
+      console.error('Sync failed:', error);
+    }
+  },
+
+  refreshEmails: async () => {
+    const { selectedFolder, fetchEmails } = get();
+    return fetchEmails(selectedFolder);
+  },
+
+  fetchUnreadCounts: async () => {
+    const { isApiEnabled } = get();
+    if (!isApiEnabled) return;
+    
+    try {
+      const result = await emailsApi.getUnreadCounts();
+      set({ unreadCounts: result.counts });
+      return result.counts;
+    } catch (error) {
+      console.error('Failed to fetch unread counts:', error);
+    }
+  },
 
   // API Actions - Fetch emails from server
   fetchEmails: async (folder = 'INBOX', options = {}) => {
@@ -389,18 +461,38 @@ export const useEmailStore = create((set, get) => ({
     }
   },
 
-  toggleImportant: (emailId) => set((state) => {
-    const updatedEmails = state.emails.map((email) =>
-      email.id === emailId ? { ...email, important: !email.important } : email
-    );
-    const updatedSelectedEmail = state.selectedEmail?.id === emailId
-      ? { ...state.selectedEmail, important: !state.selectedEmail.important }
-      : state.selectedEmail;
-    return {
-      emails: updatedEmails,
-      selectedEmail: updatedSelectedEmail,
-    };
-  }),
+  toggleImportant: async (emailId) => {
+    const { emails, selectedEmail, isApiEnabled, selectedFolder } = get();
+    const email = emails.find(e => e.id === emailId);
+    if (!email) return;
+    
+    const newImportant = !email.important;
+    
+    // Optimistic update
+    set((state) => ({
+      emails: state.emails.map((e) =>
+        e.id === emailId ? { ...e, important: newImportant } : e
+      ),
+      selectedEmail: state.selectedEmail?.id === emailId 
+        ? { ...state.selectedEmail, important: newImportant }
+        : state.selectedEmail,
+    }));
+    
+    // API call
+    if (isApiEnabled && email.uid) {
+      try {
+        await emailsApi.markAsImportant(selectedFolder, email.uid, newImportant);
+      } catch (error) {
+        console.error('Failed to toggle important:', error);
+        // Revert on error
+        set((state) => ({
+          emails: state.emails.map((e) =>
+            e.id === emailId ? { ...e, important: !newImportant } : e
+          ),
+        }));
+      }
+    }
+  },
 
   markAsRead: async (emailId) => {
     const { emails, isApiEnabled, selectedFolder } = get();
@@ -552,23 +644,58 @@ export const useEmailStore = create((set, get) => ({
     }
   },
 
-  archiveEmail: (emailId) => set((state) => ({
-    emails: state.emails.map((email) =>
-      email.id === emailId 
-        ? { ...email, labels: ['archive'] } 
-        : email
-    ),
-    selectedEmail: state.selectedEmail?.id === emailId ? null : state.selectedEmail,
-  })),
+  archiveEmail: async (emailId) => {
+    const { emails, isApiEnabled, selectedFolder } = get();
+    const email = emails.find(e => e.id === emailId);
+    
+    // Optimistic update
+    set((state) => ({
+      emails: state.emails.map((e) =>
+        e.id === emailId 
+          ? { ...e, labels: ['archive'] } 
+          : e
+      ),
+      selectedEmail: state.selectedEmail?.id === emailId ? null : state.selectedEmail,
+    }));
+    
+    // API call
+    if (isApiEnabled && email?.uid) {
+      try {
+        await emailsApi.archive(selectedFolder, email.uid);
+      } catch (error) {
+        console.error('Failed to archive email:', error);
+      }
+    }
+  },
 
-  archiveSelected: () => set((state) => ({
-    emails: state.emails.map((email) =>
-      state.selectedEmails.includes(email.id)
-        ? { ...email, labels: ['archive'] }
-        : email
-    ),
-    selectedEmails: [],
-  })),
+  archiveSelected: async () => {
+    const { emails, selectedEmails, isApiEnabled, selectedFolder } = get();
+    
+    // Optimistic update
+    set((state) => ({
+      emails: state.emails.map((email) =>
+        state.selectedEmails.includes(email.id)
+          ? { ...email, labels: ['archive'] }
+          : email
+      ),
+      selectedEmails: [],
+    }));
+    
+    // API batch call
+    if (isApiEnabled) {
+      const emailsToArchive = emails
+        .filter(e => selectedEmails.includes(e.id) && e.uid)
+        .map(e => ({ folder: selectedFolder, uid: e.uid }));
+      
+      if (emailsToArchive.length > 0) {
+        try {
+          await emailsApi.batchArchive(emailsToArchive);
+        } catch (error) {
+          console.error('Failed to batch archive:', error);
+        }
+      }
+    }
+  },
 
   permanentlyDelete: (emailId) => set((state) => ({
     emails: state.emails.filter((email) => email.id !== emailId),
@@ -751,12 +878,237 @@ export const useEmailStore = create((set, get) => ({
     return { success: true };
   },
 
-  reportSpam: (emailId) => set((state) => ({
-    emails: state.emails.map((email) =>
-      email.id === emailId ? { ...email, labels: ['spam'] } : email
-    ),
-    selectedEmail: state.selectedEmail?.id === emailId ? null : state.selectedEmail,
-  })),
+  reportSpam: async (emailId) => {
+    const { emails, isApiEnabled, selectedFolder } = get();
+    const email = emails.find(e => e.id === emailId);
+    
+    // Optimistic update
+    set((state) => ({
+      emails: state.emails.map((e) =>
+        e.id === emailId ? { ...e, labels: ['spam'] } : e
+      ),
+      selectedEmail: state.selectedEmail?.id === emailId ? null : state.selectedEmail,
+    }));
+    
+    // API call
+    if (isApiEnabled && email?.uid) {
+      try {
+        await emailsApi.markAsSpam(selectedFolder, email.uid);
+      } catch (error) {
+        console.error('Failed to mark as spam:', error);
+      }
+    }
+  },
+
+  reportNotSpam: async (emailId) => {
+    const { emails, isApiEnabled, selectedFolder } = get();
+    const email = emails.find(e => e.id === emailId);
+    
+    // Optimistic update
+    set((state) => ({
+      emails: state.emails.map((e) =>
+        e.id === emailId ? { ...e, labels: ['inbox'] } : e
+      ),
+      selectedEmail: state.selectedEmail?.id === emailId ? null : state.selectedEmail,
+    }));
+    
+    // API call
+    if (isApiEnabled && email?.uid) {
+      try {
+        await emailsApi.markAsNotSpam(selectedFolder, email.uid);
+      } catch (error) {
+        console.error('Failed to mark as not spam:', error);
+      }
+    }
+  },
+
+  reportSelectedAsSpam: async () => {
+    const { emails, selectedEmails, isApiEnabled, selectedFolder } = get();
+    
+    // Optimistic update
+    set((state) => ({
+      emails: state.emails.map((email) =>
+        state.selectedEmails.includes(email.id)
+          ? { ...email, labels: ['spam'] }
+          : email
+      ),
+      selectedEmails: [],
+    }));
+    
+    // API batch call
+    if (isApiEnabled) {
+      const emailsToSpam = emails
+        .filter(e => selectedEmails.includes(e.id) && e.uid)
+        .map(e => ({ folder: selectedFolder, uid: e.uid }));
+      
+      if (emailsToSpam.length > 0) {
+        try {
+          await emailsApi.batchSpam(emailsToSpam);
+        } catch (error) {
+          console.error('Failed to batch mark as spam:', error);
+        }
+      }
+    }
+  },
+
+  starSelected: async (starred = true) => {
+    const { emails, selectedEmails, isApiEnabled, selectedFolder } = get();
+    
+    // Optimistic update
+    set((state) => ({
+      emails: state.emails.map((email) =>
+        state.selectedEmails.includes(email.id)
+          ? { ...email, starred }
+          : email
+      ),
+      selectedEmails: [],
+    }));
+    
+    // API batch call
+    if (isApiEnabled) {
+      const emailsToStar = emails
+        .filter(e => selectedEmails.includes(e.id) && e.uid)
+        .map(e => ({ folder: selectedFolder, uid: e.uid }));
+      
+      if (emailsToStar.length > 0) {
+        try {
+          await emailsApi.batchStar(emailsToStar, starred);
+        } catch (error) {
+          console.error('Failed to batch star:', error);
+        }
+      }
+    }
+  },
+
+  fetchStarredEmails: async (limit = 100) => {
+    const { isApiEnabled } = get();
+    if (!isApiEnabled) return;
+    
+    set({ isLoading: true });
+    try {
+      const result = await emailsApi.getStarred(limit);
+      set({ 
+        emails: result.emails,
+        isLoading: false,
+      });
+      return result;
+    } catch (error) {
+      console.error('Failed to fetch starred emails:', error);
+      set({ error: error.message, isLoading: false });
+    }
+  },
+
+  fetchThread: async (folder, uid) => {
+    const { isApiEnabled } = get();
+    if (!isApiEnabled) return null;
+    
+    try {
+      const result = await emailsApi.getThread(folder, uid);
+      return result;
+    } catch (error) {
+      console.error('Failed to fetch thread:', error);
+      throw error;
+    }
+  },
+
+  updateDraft: async (folder, uid, draftData) => {
+    const { isApiEnabled } = get();
+    
+    if (isApiEnabled) {
+      try {
+        const result = await emailsApi.updateDraft(folder, uid, {
+          to: draftData.to || [],
+          cc: draftData.cc || [],
+          bcc: draftData.bcc || [],
+          subject: draftData.subject || '',
+          body: draftData.body || '',
+        });
+        return { success: true, uid: result.uid };
+      } catch (error) {
+        console.error('Failed to update draft:', error);
+        throw error;
+      }
+    }
+    
+    // Local fallback
+    set((state) => ({
+      emails: state.emails.map(e => 
+        e.id === `${folder}-${uid}` 
+          ? { ...e, ...draftData, date: new Date() }
+          : e
+      ),
+    }));
+    return { success: true };
+  },
+
+  deleteDraft: async (folder, uid) => {
+    const { isApiEnabled } = get();
+    
+    // Optimistic update
+    const emailId = `${folder}-${uid}`;
+    set((state) => ({
+      emails: state.emails.filter(e => e.id !== emailId),
+      selectedEmail: state.selectedEmail?.id === emailId ? null : state.selectedEmail,
+    }));
+    
+    if (isApiEnabled) {
+      try {
+        await emailsApi.deleteDraft(folder, uid);
+      } catch (error) {
+        console.error('Failed to delete draft:', error);
+      }
+    }
+  },
+
+  emptyTrash: async () => {
+    const { isApiEnabled, folders } = get();
+    
+    // Find trash folder
+    const trashFolder = folders.find(f => 
+      f.type === 'trash' || 
+      ['trash', 'deleted', 'deleted items'].includes(f.name.toLowerCase())
+    );
+    
+    if (!trashFolder) return;
+    
+    // Optimistic update - remove all trash emails
+    set((state) => ({
+      emails: state.emails.filter(e => !e.labels.includes('trash')),
+    }));
+    
+    if (isApiEnabled) {
+      try {
+        await foldersApi.empty(trashFolder.path);
+      } catch (error) {
+        console.error('Failed to empty trash:', error);
+      }
+    }
+  },
+
+  emptySpam: async () => {
+    const { isApiEnabled, folders } = get();
+    
+    // Find spam folder
+    const spamFolder = folders.find(f => 
+      f.type === 'spam' || 
+      ['spam', 'junk'].includes(f.name.toLowerCase())
+    );
+    
+    if (!spamFolder) return;
+    
+    // Optimistic update - remove all spam emails
+    set((state) => ({
+      emails: state.emails.filter(e => !e.labels.includes('spam')),
+    }));
+    
+    if (isApiEnabled) {
+      try {
+        await foldersApi.empty(spamFolder.path);
+      } catch (error) {
+        console.error('Failed to empty spam:', error);
+      }
+    }
+  },
 
   getFilteredEmails: () => {
     const { emails, selectedFolder, searchResults, searchQuery } = get();

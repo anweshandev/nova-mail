@@ -147,6 +147,75 @@ router.delete('/:path', async (req, res, next) => {
 });
 
 /**
+ * POST /api/folders/:path/empty
+ * Empty a folder (permanently delete all messages)
+ */
+router.post('/:path/empty', async (req, res, next) => {
+  try {
+    const { path } = req.params;
+    const decodedPath = decodeURIComponent(path);
+    
+    // Only allow emptying Trash and Spam folders for safety
+    const allowedFolders = ['trash', 'deleted', 'deleted items', 'spam', 'junk', 'junk e-mail'];
+    
+    const imapService = createImapService(req.user.imap);
+    
+    // Get mailbox info to check if it's a trash/spam folder
+    const mailboxes = await imapService.getMailboxes();
+    const targetBox = mailboxes.find(box => box.path === decodedPath);
+    
+    const isAllowed = targetBox && (
+      targetBox.specialUse === '\\Trash' ||
+      targetBox.specialUse === '\\Junk' ||
+      allowedFolders.includes(targetBox.name.toLowerCase())
+    );
+    
+    if (!isAllowed) {
+      return res.status(400).json({
+        error: 'Cannot Empty',
+        message: 'Only Trash and Spam folders can be emptied',
+      });
+    }
+    
+    const result = await imapService.emptyFolder(decodedPath);
+    
+    res.json({
+      success: true,
+      deleted: result.deleted,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * GET /api/folders/all-status
+ * Get status for all folders (unread counts, totals)
+ */
+router.get('/all-status', async (req, res, next) => {
+  try {
+    const imapService = createImapService(req.user.imap);
+    
+    const mailboxes = await imapService.getMailboxes();
+    const folderPaths = mailboxes.map(m => m.path);
+    
+    const counts = await imapService.getUnreadCounts(folderPaths);
+    
+    // Combine with folder info
+    const foldersWithStatus = mailboxes.map(box => ({
+      name: box.name,
+      path: box.path,
+      type: getFolderType(box),
+      ...counts[box.path],
+    }));
+    
+    res.json({ folders: foldersWithStatus });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
  * Determine folder type from mailbox info
  */
 function getFolderType(mailbox) {

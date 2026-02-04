@@ -583,4 +583,372 @@ router.post('/batch/move', async (req, res, next) => {
   }
 });
 
+/**
+ * POST /api/emails/batch/star
+ * Toggle star on multiple emails
+ */
+router.post('/batch/star', async (req, res, next) => {
+  try {
+    const { emails, starred } = req.body;
+    
+    if (!Array.isArray(emails) || emails.length === 0) {
+      return res.status(400).json({
+        error: 'Validation Error',
+        message: 'emails must be a non-empty array',
+      });
+    }
+    
+    if (typeof starred !== 'boolean') {
+      return res.status(400).json({
+        error: 'Validation Error',
+        message: 'starred must be a boolean',
+      });
+    }
+    
+    const imapService = createImapService(req.user.imap);
+    
+    const results = await Promise.allSettled(
+      emails.map(({ folder, uid }) =>
+        imapService.setStarred(folder, parseInt(uid), starred)
+      )
+    );
+    
+    const succeeded = results.filter(r => r.status === 'fulfilled').length;
+    const failed = results.filter(r => r.status === 'rejected').length;
+    
+    res.json({ success: true, succeeded, failed, starred });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * PATCH /api/emails/:folder/:uid/important
+ * Mark email as important/not important
+ */
+router.patch('/:folder/:uid/important', async (req, res, next) => {
+  try {
+    const { folder, uid } = req.params;
+    const { important } = req.body;
+    
+    if (typeof important !== 'boolean') {
+      return res.status(400).json({
+        error: 'Validation Error',
+        message: 'important must be a boolean',
+      });
+    }
+    
+    const imapService = createImapService(req.user.imap);
+    await imapService.setImportant(folder, parseInt(uid), important);
+    
+    res.json({ success: true, important });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * POST /api/emails/:folder/:uid/archive
+ * Archive an email
+ */
+router.post('/:folder/:uid/archive', async (req, res, next) => {
+  try {
+    const { folder, uid } = req.params;
+    
+    const imapService = createImapService(req.user.imap);
+    await imapService.archiveEmail(folder, parseInt(uid));
+    
+    res.json({ success: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * POST /api/emails/:folder/:uid/spam
+ * Mark email as spam
+ */
+router.post('/:folder/:uid/spam', async (req, res, next) => {
+  try {
+    const { folder, uid } = req.params;
+    
+    const imapService = createImapService(req.user.imap);
+    await imapService.markAsSpam(folder, parseInt(uid));
+    
+    res.json({ success: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * POST /api/emails/:folder/:uid/not-spam
+ * Mark email as not spam (move back to INBOX)
+ */
+router.post('/:folder/:uid/not-spam', async (req, res, next) => {
+  try {
+    const { folder, uid } = req.params;
+    
+    const imapService = createImapService(req.user.imap);
+    await imapService.markAsNotSpam(folder, parseInt(uid));
+    
+    res.json({ success: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * POST /api/emails/batch/archive
+ * Archive multiple emails
+ */
+router.post('/batch/archive', async (req, res, next) => {
+  try {
+    const { emails } = req.body;
+    
+    if (!Array.isArray(emails) || emails.length === 0) {
+      return res.status(400).json({
+        error: 'Validation Error',
+        message: 'emails must be a non-empty array',
+      });
+    }
+    
+    const imapService = createImapService(req.user.imap);
+    
+    const results = await Promise.allSettled(
+      emails.map(({ folder, uid }) =>
+        imapService.archiveEmail(folder, parseInt(uid))
+      )
+    );
+    
+    const succeeded = results.filter(r => r.status === 'fulfilled').length;
+    const failed = results.filter(r => r.status === 'rejected').length;
+    
+    res.json({ success: true, succeeded, failed });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * POST /api/emails/batch/spam
+ * Mark multiple emails as spam
+ */
+router.post('/batch/spam', async (req, res, next) => {
+  try {
+    const { emails } = req.body;
+    
+    if (!Array.isArray(emails) || emails.length === 0) {
+      return res.status(400).json({
+        error: 'Validation Error',
+        message: 'emails must be a non-empty array',
+      });
+    }
+    
+    const imapService = createImapService(req.user.imap);
+    
+    const results = await Promise.allSettled(
+      emails.map(({ folder, uid }) =>
+        imapService.markAsSpam(folder, parseInt(uid))
+      )
+    );
+    
+    const succeeded = results.filter(r => r.status === 'fulfilled').length;
+    const failed = results.filter(r => r.status === 'rejected').length;
+    
+    res.json({ success: true, succeeded, failed });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * GET /api/emails/starred
+ * Get all starred emails across folders
+ */
+router.get('/starred', async (req, res, next) => {
+  try {
+    const { limit = 100 } = req.query;
+    
+    const imapService = createImapService(req.user.imap);
+    
+    // Get all mailboxes
+    const mailboxes = await imapService.getMailboxes();
+    const folderPaths = mailboxes.map(m => m.path);
+    
+    const result = await imapService.getStarredEmails(folderPaths, parseInt(limit));
+    
+    res.json(result);
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * GET /api/emails/:folder/:uid/thread
+ * Get conversation thread for an email
+ */
+router.get('/:folder/:uid/thread', async (req, res, next) => {
+  try {
+    const { folder, uid } = req.params;
+    
+    const imapService = createImapService(req.user.imap);
+    const thread = await imapService.getThread(folder, parseInt(uid));
+    
+    res.json(thread);
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * PUT /api/emails/draft/:folder/:uid
+ * Update an existing draft
+ */
+router.put('/draft/:folder/:uid', async (req, res, next) => {
+  try {
+    const { folder, uid } = req.params;
+    const validation = draftSchema.safeParse(req.body);
+    
+    if (!validation.success) {
+      return res.status(400).json({
+        error: 'Validation Error',
+        message: validation.error.errors[0].message,
+        details: validation.error.errors,
+      });
+    }
+    
+    const imapService = createImapService(req.user.imap);
+    const smtpService = createSmtpService({
+      ...req.user.smtp,
+      name: req.user.name,
+    });
+    
+    // Build new draft message
+    const rawMessage = smtpService.buildDraftMessage(validation.data);
+    const result = await imapService.updateDraft(folder, parseInt(uid), rawMessage);
+    
+    res.json({
+      success: true,
+      uid: result.uid,
+      folder,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * DELETE /api/emails/draft/:folder/:uid
+ * Delete a draft (permanently)
+ */
+router.delete('/draft/:folder/:uid', async (req, res, next) => {
+  try {
+    const { folder, uid } = req.params;
+    
+    const imapService = createImapService(req.user.imap);
+    await imapService.deleteEmail(folder, parseInt(uid), true);
+    
+    res.json({ success: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * GET /api/emails/sync
+ * Check for new emails (polling endpoint)
+ */
+router.get('/sync', async (req, res, next) => {
+  try {
+    const { folder = 'INBOX', uidNext } = req.query;
+    
+    const imapService = createImapService(req.user.imap);
+    
+    if (uidNext) {
+      // Check if there are new messages since uidNext
+      const status = await imapService.checkNewMessages(folder, parseInt(uidNext));
+      
+      if (status.hasNew) {
+        // Fetch the new messages
+        const newEmails = await imapService.getNewMessages(folder, parseInt(uidNext));
+        res.json({
+          ...status,
+          newEmails: newEmails.emails,
+        });
+      } else {
+        res.json(status);
+      }
+    } else {
+      // Just return current status
+      const status = await imapService.getMailboxStatus(folder);
+      res.json(status);
+    }
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * GET /api/emails/unread-counts
+ * Get unread counts for all folders
+ */
+router.get('/unread-counts', async (req, res, next) => {
+  try {
+    const imapService = createImapService(req.user.imap);
+    
+    // Get all mailboxes
+    const mailboxes = await imapService.getMailboxes();
+    const folderPaths = mailboxes.map(m => m.path);
+    
+    const counts = await imapService.getUnreadCounts(folderPaths);
+    
+    res.json({ counts });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * POST /api/emails/:folder/:uid/label
+ * Add a label/keyword to an email
+ */
+router.post('/:folder/:uid/label', async (req, res, next) => {
+  try {
+    const { folder, uid } = req.params;
+    const { label } = req.body;
+    
+    if (!label) {
+      return res.status(400).json({
+        error: 'Validation Error',
+        message: 'label is required',
+      });
+    }
+    
+    const imapService = createImapService(req.user.imap);
+    await imapService.addLabel(folder, parseInt(uid), label);
+    
+    res.json({ success: true, label });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * DELETE /api/emails/:folder/:uid/label/:label
+ * Remove a label/keyword from an email
+ */
+router.delete('/:folder/:uid/label/:label', async (req, res, next) => {
+  try {
+    const { folder, uid, label } = req.params;
+    
+    const imapService = createImapService(req.user.imap);
+    await imapService.removeLabel(folder, parseInt(uid), label);
+    
+    res.json({ success: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
 export default router;

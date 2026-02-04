@@ -521,6 +521,464 @@ export class ImapService {
       await client.logout();
     }
   }
+
+  /**
+   * Set important flag on email
+   */
+  async setImportant(folder, uid, important) {
+    const client = await this.connect();
+    
+    try {
+      await client.mailboxOpen(folder);
+      
+      // Some servers use $Important, others use \Important
+      const flags = ['$Important'];
+      
+      if (important) {
+        await client.messageFlagsAdd(uid, flags);
+      } else {
+        await client.messageFlagsRemove(uid, flags);
+      }
+      
+      return { success: true };
+    } finally {
+      await client.logout();
+    }
+  }
+
+  /**
+   * Add custom label/keyword to email
+   */
+  async addLabel(folder, uid, label) {
+    const client = await this.connect();
+    
+    try {
+      await client.mailboxOpen(folder);
+      await client.messageFlagsAdd(uid, [label]);
+      return { success: true };
+    } finally {
+      await client.logout();
+    }
+  }
+
+  /**
+   * Remove custom label/keyword from email
+   */
+  async removeLabel(folder, uid, label) {
+    const client = await this.connect();
+    
+    try {
+      await client.mailboxOpen(folder);
+      await client.messageFlagsRemove(uid, [label]);
+      return { success: true };
+    } finally {
+      await client.logout();
+    }
+  }
+
+  /**
+   * Archive email (move to Archive folder)
+   */
+  async archiveEmail(folder, uid) {
+    const client = await this.connect();
+    
+    try {
+      const mailboxes = await client.list();
+      const archiveBox = mailboxes.find(
+        box => box.specialUse === '\\Archive' || 
+        ['Archive', 'All Mail', 'All'].some(n => box.name.toLowerCase() === n.toLowerCase())
+      );
+      
+      if (!archiveBox) {
+        // Create Archive folder if it doesn't exist
+        await client.mailboxCreate('Archive');
+        await client.mailboxOpen(folder);
+        await client.messageMove(uid, 'Archive');
+      } else {
+        await client.mailboxOpen(folder);
+        await client.messageMove(uid, archiveBox.path);
+      }
+      
+      return { success: true };
+    } finally {
+      await client.logout();
+    }
+  }
+
+  /**
+   * Mark email as spam (move to Spam/Junk folder)
+   */
+  async markAsSpam(folder, uid) {
+    const client = await this.connect();
+    
+    try {
+      const mailboxes = await client.list();
+      const spamBox = mailboxes.find(
+        box => box.specialUse === '\\Junk' || 
+        ['Spam', 'Junk', 'Junk E-mail'].some(n => box.name.toLowerCase() === n.toLowerCase())
+      );
+      
+      if (!spamBox) {
+        // Create Spam folder if it doesn't exist
+        await client.mailboxCreate('Spam');
+        await client.mailboxOpen(folder);
+        await client.messageMove(uid, 'Spam');
+      } else {
+        await client.mailboxOpen(folder);
+        await client.messageMove(uid, spamBox.path);
+      }
+      
+      return { success: true };
+    } finally {
+      await client.logout();
+    }
+  }
+
+  /**
+   * Mark email as not spam (move back to INBOX)
+   */
+  async markAsNotSpam(folder, uid) {
+    const client = await this.connect();
+    
+    try {
+      await client.mailboxOpen(folder);
+      await client.messageMove(uid, 'INBOX');
+      return { success: true };
+    } finally {
+      await client.logout();
+    }
+  }
+
+  /**
+   * Empty a folder (permanently delete all messages)
+   */
+  async emptyFolder(folder) {
+    const client = await this.connect();
+    
+    try {
+      await client.mailboxOpen(folder);
+      
+      // Search for all messages
+      const messages = await client.search({ all: true });
+      
+      if (messages.length > 0) {
+        // Mark all as deleted and expunge
+        await client.messageDelete(messages);
+      }
+      
+      return { success: true, deleted: messages.length };
+    } finally {
+      await client.logout();
+    }
+  }
+
+  /**
+   * Get new messages since a specific UID
+   */
+  async getNewMessages(folder, sinceUid) {
+    const client = await this.connect();
+    
+    try {
+      await client.mailboxOpen(folder);
+      
+      // Search for messages with UID greater than sinceUid
+      const messages = [];
+      
+      for await (const message of client.fetch(
+        { uid: `${sinceUid + 1}:*` },
+        {
+          uid: true,
+          envelope: true,
+          flags: true,
+          bodyStructure: true,
+          size: true,
+        }
+      )) {
+        messages.push({
+          uid: message.uid,
+          id: `${folder}-${message.uid}`,
+          messageId: message.envelope?.messageId,
+          from: message.envelope?.from?.[0] ? {
+            name: message.envelope.from[0].name || '',
+            email: `${message.envelope.from[0].mailbox}@${message.envelope.from[0].host}`,
+          } : { name: '', email: '' },
+          to: (message.envelope?.to || []).map(addr => ({
+            name: addr.name || '',
+            email: `${addr.mailbox}@${addr.host}`,
+          })),
+          subject: message.envelope?.subject || '(no subject)',
+          date: message.envelope?.date || new Date(),
+          read: message.flags?.has('\\Seen') || false,
+          starred: message.flags?.has('\\Flagged') || false,
+          hasAttachments: this.hasAttachments(message.bodyStructure),
+          labels: [folder.toLowerCase()],
+        });
+      }
+      
+      return {
+        emails: messages.reverse(),
+        total: messages.length,
+        folder,
+      };
+    } finally {
+      await client.logout();
+    }
+  }
+
+  /**
+   * Check for new messages (polling) - returns count and UIDs
+   */
+  async checkNewMessages(folder, knownUidNext) {
+    const client = await this.connect();
+    
+    try {
+      const status = await client.status(folder, {
+        messages: true,
+        recent: true,
+        unseen: true,
+        uidNext: true,
+      });
+      
+      const hasNew = status.uidNext > knownUidNext;
+      
+      return {
+        folder,
+        total: status.messages,
+        recent: status.recent,
+        unseen: status.unseen,
+        uidNext: status.uidNext,
+        hasNew,
+        newCount: hasNew ? status.uidNext - knownUidNext : 0,
+      };
+    } finally {
+      await client.logout();
+    }
+  }
+
+  /**
+   * Get all starred/flagged emails across specified folders
+   */
+  async getStarredEmails(folders = ['INBOX'], limit = 100) {
+    const client = await this.connect();
+    const allStarred = [];
+    
+    try {
+      for (const folder of folders) {
+        try {
+          await client.mailboxOpen(folder);
+          
+          const starredUids = await client.search({ flagged: true });
+          
+          if (starredUids.length > 0) {
+            for await (const message of client.fetch(
+              starredUids.slice(0, Math.min(starredUids.length, limit - allStarred.length)),
+              {
+                uid: true,
+                envelope: true,
+                flags: true,
+              }
+            )) {
+              allStarred.push({
+                uid: message.uid,
+                id: `${folder}-${message.uid}`,
+                folder,
+                from: message.envelope?.from?.[0] ? {
+                  name: message.envelope.from[0].name || '',
+                  email: `${message.envelope.from[0].mailbox}@${message.envelope.from[0].host}`,
+                } : { name: '', email: '' },
+                subject: message.envelope?.subject || '(no subject)',
+                date: message.envelope?.date || new Date(),
+                read: message.flags?.has('\\Seen') || false,
+                starred: true,
+              });
+            }
+          }
+        } catch (error) {
+          console.warn(`Failed to get starred from ${folder}:`, error.message);
+        }
+        
+        if (allStarred.length >= limit) break;
+      }
+      
+      // Sort by date descending
+      allStarred.sort((a, b) => new Date(b.date) - new Date(a.date));
+      
+      return {
+        emails: allStarred.slice(0, limit),
+        total: allStarred.length,
+      };
+    } finally {
+      await client.logout();
+    }
+  }
+
+  /**
+   * Get conversation thread (emails with same subject or in-reply-to chain)
+   */
+  async getThread(folder, uid) {
+    const client = await this.connect();
+    
+    try {
+      await client.mailboxOpen(folder);
+      
+      // First, get the target message
+      const targetMsg = await client.fetchOne(uid, {
+        uid: true,
+        envelope: true,
+        source: true,
+      });
+      
+      if (!targetMsg) {
+        throw new Error('Email not found');
+      }
+      
+      const parsed = await simpleParser(targetMsg.source);
+      const subject = targetMsg.envelope?.subject || '';
+      const messageId = targetMsg.envelope?.messageId;
+      const references = parsed.references || [];
+      const inReplyTo = parsed.inReplyTo;
+      
+      // Collect all related message IDs
+      const relatedIds = new Set([messageId, inReplyTo, ...references].filter(Boolean));
+      
+      // Search for related messages by subject (strip Re:/Fwd:)
+      const baseSubject = subject.replace(/^(Re|Fwd|Fw):\s*/gi, '').trim();
+      
+      let threadUids = [];
+      if (baseSubject) {
+        threadUids = await client.search({ subject: baseSubject });
+      }
+      
+      // Fetch all thread messages
+      const threadMessages = [];
+      
+      if (threadUids.length > 0) {
+        for await (const message of client.fetch(threadUids, {
+          uid: true,
+          envelope: true,
+          flags: true,
+          source: true,
+        })) {
+          const msgParsed = await simpleParser(message.source);
+          
+          threadMessages.push({
+            uid: message.uid,
+            id: `${folder}-${message.uid}`,
+            messageId: message.envelope?.messageId,
+            inReplyTo: msgParsed.inReplyTo,
+            references: msgParsed.references,
+            from: message.envelope?.from?.[0] ? {
+              name: message.envelope.from[0].name || '',
+              email: `${message.envelope.from[0].mailbox}@${message.envelope.from[0].host}`,
+            } : { name: '', email: '' },
+            to: (message.envelope?.to || []).map(addr => ({
+              name: addr.name || '',
+              email: `${addr.mailbox}@${addr.host}`,
+            })),
+            subject: message.envelope?.subject || '(no subject)',
+            date: message.envelope?.date || new Date(),
+            read: message.flags?.has('\\Seen') || false,
+            starred: message.flags?.has('\\Flagged') || false,
+            body: msgParsed.html || msgParsed.textAsHtml || '',
+            textBody: msgParsed.text || '',
+          });
+        }
+      }
+      
+      // Sort by date ascending for thread view
+      threadMessages.sort((a, b) => new Date(a.date) - new Date(b.date));
+      
+      return {
+        thread: threadMessages,
+        count: threadMessages.length,
+        subject: baseSubject,
+      };
+    } finally {
+      await client.logout();
+    }
+  }
+
+  /**
+   * Update a draft message (delete old, append new)
+   */
+  async updateDraft(folder, oldUid, rawMessage) {
+    const client = await this.connect();
+    
+    try {
+      // Append new draft first
+      const result = await client.append(folder, rawMessage, ['\\Draft']);
+      
+      // Then delete the old one
+      await client.mailboxOpen(folder);
+      await client.messageDelete(oldUid);
+      
+      return { success: true, uid: result.uid };
+    } finally {
+      await client.logout();
+    }
+  }
+
+  /**
+   * Get unread count for multiple folders
+   */
+  async getUnreadCounts(folders) {
+    const client = await this.connect();
+    const counts = {};
+    
+    try {
+      for (const folder of folders) {
+        try {
+          const status = await client.status(folder, { unseen: true, messages: true });
+          counts[folder] = {
+            unseen: status.unseen,
+            total: status.messages,
+          };
+        } catch (error) {
+          counts[folder] = { unseen: 0, total: 0, error: error.message };
+        }
+      }
+      
+      return counts;
+    } finally {
+      await client.logout();
+    }
+  }
+
+  /**
+   * Batch set flags on multiple messages
+   */
+  async batchSetFlags(folder, uids, flags, add = true) {
+    const client = await this.connect();
+    
+    try {
+      await client.mailboxOpen(folder);
+      
+      if (add) {
+        await client.messageFlagsAdd(uids, flags);
+      } else {
+        await client.messageFlagsRemove(uids, flags);
+      }
+      
+      return { success: true, affected: uids.length };
+    } finally {
+      await client.logout();
+    }
+  }
+
+  /**
+   * Expunge deleted messages from a folder
+   */
+  async expunge(folder) {
+    const client = await this.connect();
+    
+    try {
+      await client.mailboxOpen(folder);
+      await client.messageDelete({ deleted: true });
+      return { success: true };
+    } finally {
+      await client.logout();
+    }
+  }
 }
 
 /**

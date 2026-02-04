@@ -230,6 +230,97 @@ export const emailsApi = {
       body: JSON.stringify({ emails, targetFolder }),
     });
   },
+
+  async batchStar(emails, starred) {
+    return request('/emails/batch/star', {
+      method: 'POST',
+      body: JSON.stringify({ emails, starred }),
+    });
+  },
+
+  async batchArchive(emails) {
+    return request('/emails/batch/archive', {
+      method: 'POST',
+      body: JSON.stringify({ emails }),
+    });
+  },
+
+  async batchSpam(emails) {
+    return request('/emails/batch/spam', {
+      method: 'POST',
+      body: JSON.stringify({ emails }),
+    });
+  },
+
+  async markAsImportant(folder, uid, important) {
+    return request(`/emails/${encodeURIComponent(folder)}/${uid}/important`, {
+      method: 'PATCH',
+      body: JSON.stringify({ important }),
+    });
+  },
+
+  async archive(folder, uid) {
+    return request(`/emails/${encodeURIComponent(folder)}/${uid}/archive`, {
+      method: 'POST',
+    });
+  },
+
+  async markAsSpam(folder, uid) {
+    return request(`/emails/${encodeURIComponent(folder)}/${uid}/spam`, {
+      method: 'POST',
+    });
+  },
+
+  async markAsNotSpam(folder, uid) {
+    return request(`/emails/${encodeURIComponent(folder)}/${uid}/not-spam`, {
+      method: 'POST',
+    });
+  },
+
+  async getStarred(limit = 100) {
+    const params = new URLSearchParams({ limit });
+    return request(`/emails/starred?${params}`);
+  },
+
+  async getThread(folder, uid) {
+    return request(`/emails/${encodeURIComponent(folder)}/${uid}/thread`);
+  },
+
+  async updateDraft(folder, uid, draftData) {
+    return request(`/emails/draft/${encodeURIComponent(folder)}/${uid}`, {
+      method: 'PUT',
+      body: JSON.stringify(draftData),
+    });
+  },
+
+  async deleteDraft(folder, uid) {
+    return request(`/emails/draft/${encodeURIComponent(folder)}/${uid}`, {
+      method: 'DELETE',
+    });
+  },
+
+  async sync(folder = 'INBOX', uidNext = null) {
+    const params = new URLSearchParams({ folder });
+    if (uidNext) params.append('uidNext', uidNext);
+    return request(`/emails/sync?${params}`);
+  },
+
+  async getUnreadCounts() {
+    return request('/emails/unread-counts');
+  },
+
+  async addLabel(folder, uid, label) {
+    return request(`/emails/${encodeURIComponent(folder)}/${uid}/label`, {
+      method: 'POST',
+      body: JSON.stringify({ label }),
+    });
+  },
+
+  async removeLabel(folder, uid, label) {
+    return request(`/emails/${encodeURIComponent(folder)}/${uid}/label/${encodeURIComponent(label)}`, {
+      method: 'DELETE',
+    });
+  },
 };
 
 /**
@@ -242,6 +333,10 @@ export const foldersApi = {
 
   async getStatus(path) {
     return request(`/folders/${encodeURIComponent(path)}/status`);
+  },
+
+  async getAllStatus() {
+    return request('/folders/all-status');
   },
 
   async create(name, parent = null) {
@@ -261,6 +356,12 @@ export const foldersApi = {
   async delete(path) {
     return request(`/folders/${encodeURIComponent(path)}`, {
       method: 'DELETE',
+    });
+  },
+
+  async empty(path) {
+    return request(`/folders/${encodeURIComponent(path)}/empty`, {
+      method: 'POST',
     });
   },
 };
