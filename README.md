@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="frontend/public/images/nova-logo.svg" alt="NovaMail Logo" width="120" height="120">
+  <img src="frontend/public/images/logo/base-logo-coloured.png" alt="NovaMail Logo" width="120" height="120">
 </p>
 
 <h1 align="center">✨ NovaMail</h1>
