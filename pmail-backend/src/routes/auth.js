@@ -12,8 +12,10 @@ const loginSchema = z.object({
   password: z.string().min(1, 'Password is required'),
   imapServer: z.string().optional(),
   imapPort: z.number().optional(),
+  imapSecurity: z.enum(['SSL/TLS', 'STARTTLS', 'None']).optional(),
   smtpServer: z.string().optional(),
   smtpPort: z.number().optional(),
+  smtpSecurity: z.enum(['SSL/TLS', 'STARTTLS', 'None']).optional(),
 });
 
 /**
@@ -104,8 +106,8 @@ async function discoverMailConfig(email) {
 
   // Fallback: try common mail server patterns
   const fallbackConfig = {
-    imap: { host: `mail.${domain}`, port: 993, secure: true },
-    smtp: { host: `mail.${domain}`, port: 587, secure: false },
+    imap: { host: `mail.${domain}`, port: 993, secure: true, starttls: false },
+    smtp: { host: `mail.${domain}`, port: 465, secure: true, starttls: false },
   };
   
   console.log(`No autoconfig found, using fallback: mail.${domain}`);
@@ -143,7 +145,8 @@ function parseAutoconfig(xml) {
     imap: {
       host: imapHost || '',
       port: parseInt(imapPort) || 993,
-      secure: imapSocket?.toUpperCase() === 'SSL' || imapSocket?.toUpperCase() === 'TLS' || true,
+      secure: imapSocket?.toUpperCase() === 'SSL',
+      starttls: imapSocket?.toUpperCase() === 'STARTTLS',
     },
     smtp: {
       host: smtpHost || '',
@@ -201,7 +204,7 @@ router.post('/login', async (req, res, next) => {
       });
     }
     
-    let { email, password, imapServer, imapPort, smtpServer, smtpPort } = validation.data;
+    let { email, password, imapServer, imapPort, imapSecurity, smtpServer, smtpPort, smtpSecurity } = validation.data;
     
     // Auto-discover server settings if not provided
     if (!imapServer || !smtpServer) {
@@ -211,13 +214,33 @@ router.post('/login', async (req, res, next) => {
       if (!imapServer) {
         imapServer = discovery.config.imap.host;
         imapPort = imapPort || discovery.config.imap.port;
+        // Determine security from discovery if not provided
+        if (!imapSecurity) {
+          if (discovery.config.imap.secure) {
+            imapSecurity = 'SSL/TLS';
+          } else if (discovery.config.imap.starttls) {
+            imapSecurity = 'STARTTLS';
+          } else {
+            imapSecurity = 'None';
+          }
+        }
       }
       if (!smtpServer) {
         smtpServer = discovery.config.smtp.host;
         smtpPort = smtpPort || discovery.config.smtp.port;
+        // Determine security from discovery if not provided
+        if (!smtpSecurity) {
+          if (discovery.config.smtp.secure) {
+            smtpSecurity = 'SSL/TLS';
+          } else if (discovery.config.smtp.starttls) {
+            smtpSecurity = 'STARTTLS';
+          } else {
+            smtpSecurity = 'None';
+          }
+        }
       }
       
-      console.log(`Using discovered config - IMAP: ${imapServer}:${imapPort}, SMTP: ${smtpServer}:${smtpPort}`);
+      console.log(`Using discovered config - IMAP: ${imapServer}:${imapPort} (${imapSecurity}), SMTP: ${smtpServer}:${smtpPort} (${smtpSecurity})`);
     }
     
     // Validate we have server settings now
@@ -231,13 +254,15 @@ router.post('/login', async (req, res, next) => {
     const imap = {
       host: imapServer,
       port: imapPort || 993,
+      security: imapSecurity || 'SSL/TLS',
       user: email,
       pass: password,
     };
     
     const smtp = {
       host: smtpServer,
-      port: smtpPort || 587,
+      port: smtpPort || 465,
+      security: smtpSecurity || 'SSL/TLS',
       user: email,
       pass: password,
     };
@@ -367,8 +392,8 @@ router.post('/autoconfig', async (req, res) => {
       found: false,
       source: 'fallback',
       config: {
-        imap: { host: `mail.${domain}`, port: 993, secure: true },
-        smtp: { host: `mail.${domain}`, port: 587, secure: false },
+        imap: { host: `mail.${domain}`, port: 993, secure: true, starttls: false },
+        smtp: { host: `mail.${domain}`, port: 465, secure: true, starttls: false },
       },
     });
   }

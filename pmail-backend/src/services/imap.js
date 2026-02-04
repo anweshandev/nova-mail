@@ -6,10 +6,15 @@ import { simpleParser } from 'mailparser';
  */
 export class ImapService {
   constructor(config) {
+    // Security type: 'SSL/TLS' (port 993), 'STARTTLS' (port 143), 'None' (port 143)
+    const security = config.security || 'SSL/TLS';
+    const isSecure = security === 'SSL/TLS';
+    const useStartTls = security === 'STARTTLS';
+    
     this.config = {
       host: config.host,
-      port: config.port || 993,
-      secure: config.secure !== false,
+      port: config.port || (isSecure ? 993 : 143),
+      secure: isSecure,
       auth: {
         user: config.user,
         pass: config.pass,
@@ -19,6 +24,22 @@ export class ImapService {
         rejectUnauthorized: process.env.NODE_ENV === 'production',
       },
     };
+    
+    // For STARTTLS, we connect insecurely and upgrade
+    if (useStartTls) {
+      this.config.secure = false;
+      this.config.tls = {
+        ...this.config.tls,
+        // ImapFlow handles STARTTLS automatically when secure is false
+        // and the server advertises STARTTLS capability
+      };
+    }
+    
+    // For 'None', disable TLS entirely (not recommended for production)
+    if (security === 'None') {
+      this.config.secure = false;
+      this.config.disableCompression = true;
+    }
   }
 
   /**

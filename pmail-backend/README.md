@@ -2,6 +2,20 @@
 
 A Node.js backend API for the PMail email client, providing IMAP/SMTP connectivity for a Gmail-like experience.
 
+## Overview
+
+PMail Backend serves as the bridge between your frontend email client and mail servers. It handles all email operations through IMAP for reading/managing emails and SMTP for sending. The server maintains secure connections to mail servers on behalf of authenticated users, providing a RESTful API interface.
+
+### How It Works
+
+1. **Authentication Flow**: Users authenticate with their email credentials. The backend validates these against the IMAP server and issues a JWT token containing encrypted connection details.
+
+2. **Connection Pooling**: IMAP connections are managed per-user session, allowing efficient reuse of connections for multiple operations.
+
+3. **Email Operations**: All email operations (read, send, move, delete) are proxied through the backend, which translates REST API calls into IMAP/SMTP commands.
+
+4. **Autoconfig Support**: The backend can automatically discover mail server settings using Mozilla Autoconfig or Microsoft Autodiscover protocols.
+
 ## Features
 
 - 📧 **IMAP Integration** - Full mailbox access (read, search, organize emails)
@@ -13,9 +27,25 @@ A Node.js backend API for the PMail email client, providing IMAP/SMTP connectivi
 - 🔍 **Search** - Full-text email search
 - 🐳 **Docker Ready** - Easy deployment with Docker
 
+## Architecture
+
+```
+┌─────────────┐     ┌─────────────────┐     ┌─────────────────┐
+│   Frontend  │────▶│  PMail Backend  │────▶│   Mail Server   │
+│  (Vue/React)│◀────│   (Express.js)  │◀────│  (IMAP/SMTP)    │
+└─────────────┘     └─────────────────┘     └─────────────────┘
+							│
+					┌───────┴───────┐
+					│               │
+			  ┌─────▼─────┐   ┌─────▼─────┐
+			  │   IMAP    │   │   SMTP    │
+			  │  Service  │   │  Service  │
+			  └───────────┘   └───────────┘
+```
+
 ## Prerequisites
 
-- Node.js 20+ 
+- Node.js 20+
 - pnpm (recommended) or npm
 - Access to an IMAP/SMTP mail server (e.g., docker-mailserver)
 
@@ -69,7 +99,7 @@ docker-compose down
 | `AUTOCONFIG_URL` | Mozilla autoconfig endpoint | - |
 | `AUTODISCOVER_URL` | Autodiscover endpoint | - |
 
-## API Endpoints
+## API Reference
 
 ### Authentication
 
@@ -122,7 +152,7 @@ docker-compose down
 
 ## Usage with docker-mailserver
 
-This backend is designed to work seamlessly with [docker-mailserver](https://docker-mailserver.github.io/docker-mailserver/). 
+This backend is designed to work seamlessly with [docker-mailserver](https://docker-mailserver.github.io/docker-mailserver/).
 
 Configure your environment:
 
@@ -165,12 +195,66 @@ pmail-backend/
 └── README.md
 ```
 
+## Key Components
+
+### IMAP Service (`src/services/imap.js`)
+
+Handles all read operations:
+- Connecting to IMAP servers with TLS
+- Fetching mailbox lists and email headers
+- Retrieving full email content and attachments
+- Managing flags (read, starred, etc.)
+- Moving/copying emails between folders
+
+### SMTP Service (`src/services/smtp.js`)
+
+Handles all send operations:
+- Connecting to SMTP servers with STARTTLS
+- Composing and sending emails
+- Handling attachments (base64 encoding)
+- Reply/forward with proper threading headers
+
+### Authentication Middleware (`src/middleware/auth.js`)
+
+- Validates JWT tokens on protected routes
+- Extracts user credentials for mail server connections
+- Handles token refresh logic
+
 ## Security Considerations
 
 1. **JWT Secret**: Always use a strong, unique secret in production
 2. **HTTPS**: Deploy behind a reverse proxy with TLS
 3. **Credentials**: User passwords are stored in JWT tokens, which are signed but not encrypted. Consider additional encryption for production use
 4. **Rate Limiting**: Default rate limiting is enabled (100 req/min)
+5. **CORS**: Configure `CORS_ORIGIN` to match your frontend domain
+
+## Troubleshooting
+
+### Connection Issues
+
+```bash
+# Test IMAP connectivity
+openssl s_client -connect mail.yourdomain.com:993
+
+# Test SMTP connectivity
+openssl s_client -starttls smtp -connect mail.yourdomain.com:587
+```
+
+### Common Errors
+
+| Error | Cause | Solution |
+|-------|-------|----------|
+| `ECONNREFUSED` | Mail server unreachable | Check host/port configuration |
+| `AUTHENTICATIONFAILED` | Invalid credentials | Verify email/password |
+| `Certificate error` | Self-signed cert | Set `NODE_TLS_REJECT_UNAUTHORIZED=0` (dev only) |
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
 
 ## License
 

@@ -17,8 +17,10 @@ export default function Login() {
     password: '',
     imapServer: '',
     imapPort: '993',
+    imapSecurity: 'SSL/TLS', // SSL/TLS (993), STARTTLS (143), None (143)
     smtpServer: '',
-    smtpPort: '587',
+    smtpPort: '465',
+    smtpSecurity: 'SSL/TLS', // SSL/TLS (465), STARTTLS (587), None (25)
   });
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [autoConfigStatus, setAutoConfigStatus] = useState(null); // null, 'loading', 'found', 'fallback', 'error'
@@ -43,12 +45,20 @@ export default function Login() {
       const result = await authApi.autoconfig(email);
       
       if (result.found && result.config) {
+        // Determine security type from config
+        const imapSecurity = result.config.imap.secure ? 'SSL/TLS' : 
+          (result.config.imap.starttls ? 'STARTTLS' : 'None');
+        const smtpSecurity = result.config.smtp.secure ? 'SSL/TLS' : 
+          (result.config.smtp.starttls ? 'STARTTLS' : 'None');
+        
         setFormData((prev) => ({
           ...prev,
           imapServer: result.config.imap.host || prev.imapServer,
           imapPort: String(result.config.imap.port || 993),
+          imapSecurity,
           smtpServer: result.config.smtp.host || prev.smtpServer,
           smtpPort: String(result.config.smtp.port || 587),
+          smtpSecurity,
         }));
         setAutoConfigStatus('found');
         setAutoConfigSource(result.source);
@@ -91,8 +101,10 @@ export default function Login() {
       password: formData.password,
       ...(formData.imapServer && { imapServer: formData.imapServer }),
       ...(formData.imapPort && { imapPort: parseInt(formData.imapPort) }),
+      ...(formData.imapSecurity && { imapSecurity: formData.imapSecurity }),
       ...(formData.smtpServer && { smtpServer: formData.smtpServer }),
       ...(formData.smtpPort && { smtpPort: parseInt(formData.smtpPort) }),
+      ...(formData.smtpSecurity && { smtpSecurity: formData.smtpSecurity }),
     });
 
     if (result.success) {
@@ -206,7 +218,7 @@ export default function Login() {
             {/* Advanced Server Settings */}
             {showAdvanced && (
               <div className="space-y-4 p-4 bg-gray-50 dark:bg-gray-900 rounded-lg">
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-4 gap-2">
                   <div className="col-span-2">
                     <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
                       IMAP Server
@@ -228,13 +240,32 @@ export default function Login() {
                       type="number"
                       name="imapPort"
                       value={formData.imapPort}
-                      onChange={handleChange}
+                      onChange={(e) => setFormData(prev => ({ ...prev, imapPort: e.target.value }))}
                       className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                     />
                   </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                      Security
+                    </label>
+                    <select
+                      name="imapSecurity"
+                      value={formData.imapSecurity}
+                      onChange={(e) => {
+                        const security = e.target.value;
+                        const port = security === 'SSL/TLS' ? '993' : '143';
+                        setFormData(prev => ({ ...prev, imapSecurity: security, imapPort: port }));
+                      }}
+                      className="w-full px-2 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                    >
+                      <option value="SSL/TLS">SSL/TLS</option>
+                      <option value="STARTTLS">STARTTLS</option>
+                      <option value="None">None</option>
+                    </select>
+                  </div>
                 </div>
 
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-4 gap-2">
                   <div className="col-span-2">
                     <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
                       SMTP Server
@@ -256,9 +287,28 @@ export default function Login() {
                       type="number"
                       name="smtpPort"
                       value={formData.smtpPort}
-                      onChange={handleChange}
+                      onChange={(e) => setFormData(prev => ({ ...prev, smtpPort: e.target.value }))}
                       className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                     />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                      Security
+                    </label>
+                    <select
+                      name="smtpSecurity"
+                      value={formData.smtpSecurity}
+                      onChange={(e) => {
+                        const security = e.target.value;
+                        const port = security === 'SSL/TLS' ? '465' : (security === 'STARTTLS' ? '587' : '25');
+                        setFormData(prev => ({ ...prev, smtpSecurity: security, smtpPort: port }));
+                      }}
+                      className="w-full px-2 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                    >
+                      <option value="SSL/TLS">SSL/TLS</option>
+                      <option value="STARTTLS">STARTTLS</option>
+                      <option value="None">None</option>
+                    </select>
                   </div>
                 </div>
               </div>

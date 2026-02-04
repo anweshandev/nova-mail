@@ -6,10 +6,18 @@ import { v4 as uuidv4 } from 'uuid';
  */
 export class SmtpService {
   constructor(config) {
+    // Security type: 'SSL/TLS' (port 465), 'STARTTLS' (port 587), 'None' (port 25)
+    const security = config.security || 'SSL/TLS';
+    const isSecure = security === 'SSL/TLS';
+    const useStartTls = security === 'STARTTLS';
+    
+    // Default ports: SSL/TLS = 465, STARTTLS = 587, None = 25
+    const defaultPort = isSecure ? 465 : (useStartTls ? 587 : 25);
+    
     this.config = {
       host: config.host,
-      port: config.port || 587,
-      secure: config.port === 465,
+      port: config.port || defaultPort,
+      secure: isSecure, // true for port 465 (implicit TLS)
       auth: {
         user: config.user,
         pass: config.pass,
@@ -18,6 +26,19 @@ export class SmtpService {
         rejectUnauthorized: process.env.NODE_ENV === 'production',
       },
     };
+    
+    // For STARTTLS, we connect and upgrade via STARTTLS command
+    if (useStartTls) {
+      this.config.secure = false;
+      this.config.requireTLS = true; // Force STARTTLS upgrade
+    }
+    
+    // For 'None', disable TLS entirely (not recommended)
+    if (security === 'None') {
+      this.config.secure = false;
+      this.config.requireTLS = false;
+      this.config.ignoreTLS = true;
+    }
     
     this.userEmail = config.user;
     this.userName = config.name || config.user.split('@')[0];
