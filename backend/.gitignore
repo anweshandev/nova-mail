@@ -7,3 +7,9 @@ coverage/
 dist/
 .vscode/
 *.local
+
+# Database
+*.db
+*.db-shm
+*.db-wal
+novamail.db*

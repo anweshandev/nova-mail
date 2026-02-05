@@ -1,10 +1,22 @@
 import { Router } from 'express';
-import { generateToken } from '../middleware/auth.js';
+import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
+import { authenticate } from '../middleware/auth.js';
 import { createImapService } from '../services/imap.js';
 import { createSmtpService } from '../services/smtp.js';
+import {
+  upsertUser,
+  getUserByEmail,
+  createSession,
+  revokeSessionByJti,
+  getUserSessions,
+} from '../services/pocketbase.js';
 import { z } from 'zod';
 
 const router = Router();
+
+const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production';
+const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
 
 // Validation schemas - imapServer/smtpServer are now optional (will be auto-discovered)
 const loginSchema = z.object({
@@ -290,12 +302,37 @@ router.post('/login', async (req, res, next) => {
       // Don't fail login, SMTP might work for sending anyway
     }
     
-    // Generate JWT token with encrypted credentials
-    const token = generateToken({
+    // Check if user exists in database, or create/update
+    const user = await upsertUser({
       email,
+      password,
       name: email.split('@')[0],
-      imap,
-      smtp,
+      imapHost: imap.host,
+      imapPort: imap.port,
+      imapSecurity: imap.security,
+      smtpHost: smtp.host,
+      smtpPort: smtp.port,
+      smtpSecurity: smtp.security,
+    });
+    console.log(`User authenticated: ${email}`);
+    
+    // Generate JWT token
+    const jti = crypto.randomUUID();
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+    const token = jwt.sign(
+      {
+        sub: user.id,
+        email: user.email,
+        jti,
+      },
+      JWT_SECRET,
+      { expiresIn: JWT_EXPIRES_IN }
+    );
+    
+    // Create session in database
+    await createSession(user, jti, token, expiresAt, {
+      ipAddress: req.ip || req.connection.remoteAddress,
+      userAgent: req.headers['user-agent'],
     });
     
     // Get mailbox info
@@ -310,8 +347,8 @@ router.post('/login', async (req, res, next) => {
       success: true,
       token,
       user: {
-        email,
-        name: email.split('@')[0],
+        email: user.email,
+        name: user.name,
         avatar: null,
       },
       mailboxes,
@@ -323,47 +360,58 @@ router.post('/login', async (req, res, next) => {
 
 /**
  * POST /api/auth/logout
- * Invalidate session (client-side token removal)
+ * Invalidate session
  */
-router.post('/logout', (req, res) => {
-  // JWT tokens are stateless, so logout is handled client-side
-  // This endpoint exists for potential future session management
-  res.json({ success: true, message: 'Logged out successfully' });
+router.post('/logout', authenticate, async (req, res, next) => {
+  try {
+    // Revoke current session using the JTI from authenticated request
+    if (req.user.sessionJti) {
+      await revokeSessionByJti(req.user.sessionJti);
+    }
+    
+    res.json({ success: true, message: 'Logged out successfully' });
+  } catch (error) {
+    next(error);
+  }
 });
 
 /**
  * POST /api/auth/verify
  * Verify if current token is valid
  */
-router.post('/verify', async (req, res, next) => {
+router.post('/verify', authenticate, async (req, res) => {
+  // If we get here, the token is valid (authenticate middleware passed)
+  res.json({
+    valid: true,
+    user: {
+      email: req.user.email,
+    },
+  });
+});
+
+/**
+ * GET /api/auth/sessions
+ * Get all active sessions for current user
+ */
+router.get('/sessions', authenticate, async (req, res, next) => {
   try {
-    const authHeader = req.headers.authorization;
-    
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({
-        valid: false,
-        message: 'No token provided',
-      });
-    }
-    
-    const token = authHeader.split(' ')[1];
-    
-    // Import verify function here to avoid circular dependency
-    const { default: jwt } = await import('jsonwebtoken');
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'novamail-secret-key-change-in-production');
-    
-    res.json({
-      valid: true,
-      user: {
-        email: decoded.email,
-        name: decoded.name,
-      },
-    });
+    const sessions = await getUserSessions(req.user.id);
+    res.json({ sessions });
   } catch (error) {
-    res.status(401).json({
-      valid: false,
-      message: 'Invalid or expired token',
-    });
+    next(error);
+  }
+});
+
+/**
+ * DELETE /api/auth/sessions/:jti
+ * Revoke a specific session
+ */
+router.delete('/sessions/:jti', authenticate, async (req, res, next) => {
+  try {
+    await revokeSessionByJti(req.params.jti);
+    res.json({ success: true, message: 'Session revoked' });
+  } catch (error) {
+    next(error);
   }
 });
 

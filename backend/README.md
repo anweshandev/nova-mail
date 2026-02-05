@@ -47,11 +47,38 @@ NovaMail Backend serves as the bridge between your frontend email client and mai
 
 - Node.js 20+
 - pnpm (recommended) or npm
+- PocketBase (for session and user storage)
 - Access to an IMAP/SMTP mail server (e.g., docker-mailserver)
 
 ## Quick Start
 
-### Local Development
+### 1. Start PocketBase
+
+NovaMail uses PocketBase for storing users, sessions, and settings. Download and run PocketBase first:
+
+```bash
+# Download PocketBase from https://pocketbase.io/docs/
+# Extract and run it:
+./pocketbase serve
+
+# PocketBase will start on http://127.0.0.1:8090
+# On first run, go to http://127.0.0.1:8090/_/ to create admin account
+```
+
+#### Import Collections
+
+After starting PocketBase, import the schema by:
+
+1. Go to PocketBase Admin UI (`http://127.0.0.1:8090/_/`)
+2. Settings → Import Collections
+3. Upload `pb_schema.json` from this directory
+
+Or manually create these collections:
+- `users` - Stores user email configs and encrypted passwords
+- `sessions` - Stores active JWT sessions  
+- `user_settings` - Stores user preferences
+
+### 2. Local Development
 
 ```bash
 # Install dependencies
@@ -70,7 +97,38 @@ pnpm dev
 pnpm start
 ```
 
+#### How to generate your JWT Secret (Quick Methods): 
+
+##### Node (Terminal)
+
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'));"
+```
+
+##### OpenSSL (Terminal)
+
+```bash
+openssl rand -base64 32
+```
+
+##### Python
+
+```py
+import os
+import base64
+
+print(base64.b64encode(os.urandom(32)).decode('utf-8'))
+```
+
+##### Online JWT Generator
+
+Visit [jwtsecretkeygenerator.com](https://jwtsecretkeygenerator.com/) to generate cryptographically secure secret keys for JWT tokens instantly. 100% client-side processing.
+
+---
+
 ### Docker Deployment
+
+Docker Compose includes both PocketBase and the NovaMail API:
 
 ```bash
 # Build and run with Docker Compose
@@ -78,6 +136,8 @@ docker-compose up -d
 
 # View logs
 docker-compose logs -f novamail-api
+
+# Access PocketBase admin at http://localhost:8090/_/
 
 # Stop
 docker-compose down
@@ -91,13 +151,9 @@ docker-compose down
 | `NODE_ENV` | Environment | `development` |
 | `JWT_SECRET` | JWT signing secret | (required) |
 | `JWT_EXPIRES_IN` | Token expiration | `7d` |
+| `ENCRYPTION_KEY` | Password encryption key | (uses JWT_SECRET if not set) |
+| `POCKETBASE_URL` | PocketBase server URL | `http://127.0.0.1:8090` |
 | `CORS_ORIGIN` | Allowed CORS origin | `http://localhost:5173` |
-| `DEFAULT_IMAP_HOST` | Default IMAP server | `mail.yourexampledomain.com` |
-| `DEFAULT_IMAP_PORT` | Default IMAP port | `993` |
-| `DEFAULT_SMTP_HOST` | Default SMTP server | `mail.yourexampledomain.com` |
-| `DEFAULT_SMTP_PORT` | Default SMTP port | `587` |
-| `AUTOCONFIG_URL` | Mozilla autoconfig endpoint | - |
-| `AUTODISCOVER_URL` | Autodiscover endpoint | - |
 
 ## API Reference
 
@@ -258,4 +314,4 @@ openssl s_client -starttls smtp -connect mail.yourdomain.com:587
 
 ## License
 
-MIT
+MIT License located at [LICENSE.md](../LICENSE.md).

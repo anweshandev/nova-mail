@@ -13,7 +13,7 @@ const getAvatarUrl = (seed, size = 40) => {
 export default function Header() {
   const navigate = useNavigate();
   const { user, logout } = useAuthStore();
-  const { searchQuery, setSearchQuery, refreshEmails, isLoading, syncStatus } = useEmailStore();
+  const { searchQuery, setSearchQuery, refreshEmails, isLoading, syncStatus, stopPolling, reset: resetEmailStore } = useEmailStore();
   const { theme, setTheme } = useThemeStore();
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showThemeMenu, setShowThemeMenu] = useState(false);
@@ -22,6 +22,11 @@ export default function Header() {
   const avatarSeed = user?.email || user?.name || 'default';
 
   const handleLogout = () => {
+    // Stop polling before logout to prevent API calls after token invalidation
+    stopPolling();
+    // Reset email store state
+    if (resetEmailStore) resetEmailStore();
+    // Logout and navigate
     logout();
     navigate('/login');
   };

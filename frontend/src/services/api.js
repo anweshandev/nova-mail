@@ -2,7 +2,11 @@
  * API Service - Handles all HTTP requests to the NovaMail backend
  */
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+const API_BASE_URL = import.meta.env.VITE_API_URL;
+
+console.log({
+	...import.meta.env,
+})
 
 class ApiError extends Error {
   constructor(message, status, details = null) {

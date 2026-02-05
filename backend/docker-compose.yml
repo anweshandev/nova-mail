@@ -1,4 +1,21 @@
 services:
+  # PocketBase Database
+  novamail-pocketbase:
+    image: ghcr.io/muchobien/pocketbase:latest
+    container_name: novamail-pocketbase
+    restart: unless-stopped
+    volumes:
+      - novamail-pb-data:/pb_data
+    ports:
+      - "8090:8090"
+    networks:
+      - novamail-network
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8090/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   # NovaMail Backend API
   novamail-api:
     build:
@@ -13,18 +30,29 @@ services:
       - PORT=3001
       - JWT_SECRET=${JWT_SECRET:-your-super-secret-jwt-key-change-in-production}
       - JWT_EXPIRES_IN=7d
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY:-your-encryption-key-change-in-production}
+      # PocketBase
+      - POCKETBASE_URL=http://novamail-pocketbase:8090
+      # CORS
       - CORS_ORIGIN=${CORS_ORIGIN:-http://localhost:5173}
       # Rate limiting
       - RATE_LIMIT_WINDOW_MS=${RATE_LIMIT_WINDOW_MS:-60000}
       - RATE_LIMIT_MAX_REQUESTS=${RATE_LIMIT_MAX_REQUESTS:-100}
     networks:
       - novamail-network
+    depends_on:
+      novamail-pocketbase:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://localhost:3001/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 10s
+
+volumes:
+  novamail-pb-data:
+    driver: local
 
 networks:
   novamail-network:

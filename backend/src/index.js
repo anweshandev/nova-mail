@@ -10,9 +10,22 @@ import folderRoutes from './routes/folders.js';
 import settingsRoutes from './routes/settings.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { rateLimiter } from './middleware/rateLimiter.js';
+import { initPocketBase, cleanupExpiredSessions } from './services/pocketbase.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+
+// Cleanup expired sessions periodically (every hour)
+setInterval(async () => {
+  try {
+    const result = await cleanupExpiredSessions();
+    if (result.deleted > 0) {
+      console.log(`🧹 Cleaned up ${result.deleted} expired sessions`);
+    }
+  } catch (error) {
+    console.error('Session cleanup error:', error);
+  }
+}, 60 * 60 * 1000);
 
 // Security middleware
 app.use(helmet());
@@ -57,10 +70,25 @@ app.use((req, res) => {
 // Error handler
 app.use(errorHandler);
 
-app.listen(PORT, () => {
-  console.log(`✨ NovaMail Backend running on port ${PORT}`);
-  console.log(`📧 Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`🔗 Health check: http://localhost:${PORT}/health`);
+// Start server
+async function start() {
+  // Initialize PocketBase connection
+  const pbConnected = await initPocketBase();
+  if (!pbConnected) {
+    console.warn('⚠️  PocketBase not available - user sessions will not persist');
+  }
+  
+  app.listen(PORT, () => {
+    console.log(`✨ NovaMail Backend running on port ${PORT}`);
+    console.log(`📧 Environment: ${process.env.NODE_ENV || 'development'}`);
+    console.log(`💾 Database: PocketBase (${process.env.POCKETBASE_URL || 'http://127.0.0.1:8090'})`);
+    console.log(`🔗 Health check: http://localhost:${PORT}/health`);
+  });
+}
+
+start().catch(error => {
+  console.error('Failed to start server:', error);
+  process.exit(1);
 });
 
 export default app;

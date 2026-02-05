@@ -2,6 +2,22 @@ import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
 
 /**
+ * Standard folder mappings based on IMAP special use flags (RFC 6154)
+ * Maps common folder names to their specialUse flag
+ */
+const SPECIAL_USE_MAP = {
+  sent: '\\Sent',
+  drafts: '\\Drafts',
+  trash: '\\Trash',
+  junk: '\\Junk',
+  spam: '\\Junk',
+  archive: '\\Archive',
+  all: '\\All',
+  flagged: '\\Flagged',
+  important: '\\Important',
+};
+
+/**
  * IMAP Service - Handles all IMAP operations for email fetching
  */
 export class ImapService {
@@ -40,6 +56,9 @@ export class ImapService {
       this.config.secure = false;
       this.config.disableCompression = true;
     }
+    
+    // Cache for folder mappings
+    this._folderCache = null;
   }
 
   /**
@@ -67,6 +86,26 @@ export class ImapService {
     const client = await this.connect();
     try {
       const mailboxes = await client.list();
+      
+      // Build folder cache for future lookups
+      this._folderCache = {};
+      mailboxes.forEach(box => {
+        // Map by lowercase name
+        this._folderCache[box.name.toLowerCase()] = box.path;
+        this._folderCache[box.path.toLowerCase()] = box.path;
+        
+        // Map by specialUse flag
+        if (box.specialUse) {
+          this._folderCache[box.specialUse.toLowerCase()] = box.path;
+          // Also map common names to actual paths based on specialUse
+          Object.entries(SPECIAL_USE_MAP).forEach(([name, flag]) => {
+            if (box.specialUse === flag) {
+              this._folderCache[name] = box.path;
+            }
+          });
+        }
+      });
+      
       return mailboxes.map(box => ({
         name: box.name,
         path: box.path,
@@ -79,6 +118,77 @@ export class ImapService {
       await client.logout();
     }
   }
+  
+  /**
+   * Resolve a folder name to its actual IMAP path
+   * Handles case-insensitivity and specialUse mappings
+   */
+  async resolveFolderPath(folder, client = null) {
+    // INBOX is always INBOX
+    if (folder.toUpperCase() === 'INBOX') {
+      return 'INBOX';
+    }
+    
+    // Check cache first
+    if (this._folderCache && this._folderCache[folder.toLowerCase()]) {
+      return this._folderCache[folder.toLowerCase()];
+    }
+    
+    // Need to refresh folder cache
+    const needsDisconnect = !client;
+    if (!client) {
+      client = await this.connect();
+    }
+    
+    try {
+      const mailboxes = await client.list();
+      
+      // Build fresh cache
+      this._folderCache = {};
+      let resolvedPath = null;
+      
+      for (const box of mailboxes) {
+        // Map by lowercase name
+        this._folderCache[box.name.toLowerCase()] = box.path;
+        this._folderCache[box.path.toLowerCase()] = box.path;
+        
+        // Check for exact match (case-insensitive)
+        if (box.name.toLowerCase() === folder.toLowerCase() ||
+            box.path.toLowerCase() === folder.toLowerCase()) {
+          resolvedPath = box.path;
+        }
+        
+        // Map by specialUse flag
+        if (box.specialUse) {
+          this._folderCache[box.specialUse.toLowerCase()] = box.path;
+          
+          // Check if requested folder matches a specialUse alias
+          const expectedFlag = SPECIAL_USE_MAP[folder.toLowerCase()];
+          if (expectedFlag && box.specialUse === expectedFlag) {
+            resolvedPath = box.path;
+          }
+          
+          // Also store reverse mapping
+          Object.entries(SPECIAL_USE_MAP).forEach(([name, flag]) => {
+            if (box.specialUse === flag) {
+              this._folderCache[name] = box.path;
+            }
+          });
+        }
+      }
+      
+      if (needsDisconnect) {
+        await client.logout();
+      }
+      
+      return resolvedPath || folder; // Return original if not found
+    } catch (error) {
+      if (needsDisconnect && client) {
+        await client.logout().catch(() => {});
+      }
+      throw error;
+    }
+  }
 
   /**
    * Get emails from a specific folder
@@ -88,7 +198,20 @@ export class ImapService {
     const { limit = 50, offset = 0, search } = options;
     
     try {
-      await client.mailboxOpen(folder);
+      // Resolve folder path (handles case-insensitivity and specialUse)
+      const resolvedFolder = await this.resolveFolderPath(folder, client);
+      const mailbox = await client.mailboxOpen(resolvedFolder);
+      
+      // Check if mailbox is empty
+      if (!mailbox.exists || mailbox.exists === 0) {
+        return {
+          emails: [],
+          total: 0,
+          folder: resolvedFolder,
+          limit,
+          offset,
+        };
+      }
       
       // Build search query
       let searchQuery = { all: true };
@@ -176,7 +299,9 @@ export class ImapService {
     const client = await this.connect();
     
     try {
-      await client.mailboxOpen(folder);
+      // Resolve folder path
+      const resolvedFolder = await this.resolveFolderPath(folder, client);
+      await client.mailboxOpen(resolvedFolder);
       
       // Fetch the message with body
       const message = await client.fetchOne(uid, {
@@ -249,7 +374,8 @@ export class ImapService {
     const client = await this.connect();
     
     try {
-      await client.mailboxOpen(folder);
+      const resolvedFolder = await this.resolveFolderPath(folder, client);
+      await client.mailboxOpen(resolvedFolder);
       
       const message = await client.fetchOne(uid, {
         source: true,
@@ -282,7 +408,8 @@ export class ImapService {
     const client = await this.connect();
     
     try {
-      await client.mailboxOpen(folder);
+      const resolvedFolder = await this.resolveFolderPath(folder, client);
+      await client.mailboxOpen(resolvedFolder);
       
       if (read) {
         await client.messageFlagsAdd(uid, ['\\Seen']);
@@ -303,7 +430,8 @@ export class ImapService {
     const client = await this.connect();
     
     try {
-      await client.mailboxOpen(folder);
+      const resolvedFolder = await this.resolveFolderPath(folder, client);
+      await client.mailboxOpen(resolvedFolder);
       
       if (starred) {
         await client.messageFlagsAdd(uid, ['\\Flagged']);
@@ -324,8 +452,10 @@ export class ImapService {
     const client = await this.connect();
     
     try {
-      await client.mailboxOpen(sourceFolder);
-      await client.messageMove(uid, targetFolder);
+      const resolvedSource = await this.resolveFolderPath(sourceFolder, client);
+      const resolvedTarget = await this.resolveFolderPath(targetFolder, client);
+      await client.mailboxOpen(resolvedSource);
+      await client.messageMove(uid, resolvedTarget);
       
       return { success: true };
     } finally {
@@ -340,8 +470,10 @@ export class ImapService {
     const client = await this.connect();
     
     try {
-      await client.mailboxOpen(sourceFolder);
-      await client.messageCopy(uid, targetFolder);
+      const resolvedSource = await this.resolveFolderPath(sourceFolder, client);
+      const resolvedTarget = await this.resolveFolderPath(targetFolder, client);
+      await client.mailboxOpen(resolvedSource);
+      await client.messageCopy(uid, resolvedTarget);
       
       return { success: true };
     } finally {
@@ -356,17 +488,19 @@ export class ImapService {
     const client = await this.connect();
     
     try {
-      await client.mailboxOpen(folder);
+      const resolvedFolder = await this.resolveFolderPath(folder, client);
+      await client.mailboxOpen(resolvedFolder);
       
-      if (permanent || folder.toLowerCase() === 'trash') {
+      // Check if already in trash
+      const isInTrash = resolvedFolder.toLowerCase().includes('trash') || 
+                        resolvedFolder.toLowerCase().includes('deleted');
+      
+      if (permanent || isInTrash) {
         await client.messageDelete(uid);
       } else {
-        // Try common trash folder names
-        const trashFolders = ['Trash', 'Deleted', 'Deleted Items', 'Deleted Messages'];
+        // Find trash folder using specialUse flag
         const mailboxes = await client.list();
-        const trashBox = mailboxes.find(
-          box => box.specialUse === '\\Trash' || trashFolders.includes(box.name)
-        );
+        const trashBox = mailboxes.find(box => box.specialUse === '\\Trash');
         
         if (trashBox) {
           await client.messageMove(uid, trashBox.path);
@@ -390,7 +524,8 @@ export class ImapService {
     const { folder = 'INBOX', limit = 50 } = options;
     
     try {
-      await client.mailboxOpen(folder);
+      const resolvedFolder = await this.resolveFolderPath(folder, client);
+      await client.mailboxOpen(resolvedFolder);
       
       const searchResults = await client.search({
         or: [
@@ -700,40 +835,62 @@ export class ImapService {
     const client = await this.connect();
     
     try {
-      await client.mailboxOpen(folder);
+      const resolvedFolder = await this.resolveFolderPath(folder, client);
+      const mailbox = await client.mailboxOpen(resolvedFolder);
+      
+      // Check if mailbox is empty or if there are no new messages
+      if (!mailbox.exists || mailbox.exists === 0 || mailbox.uidNext <= sinceUid + 1) {
+        return {
+          emails: [],
+          total: 0,
+          folder: resolvedFolder,
+        };
+      }
       
       // Search for messages with UID greater than sinceUid
       const messages = [];
       
-      for await (const message of client.fetch(
-        { uid: `${sinceUid + 1}:*` },
-        {
-          uid: true,
-          envelope: true,
-          flags: true,
-          bodyStructure: true,
-          size: true,
+      try {
+        for await (const message of client.fetch(
+          { uid: `${sinceUid + 1}:*` },
+          {
+            uid: true,
+            envelope: true,
+            flags: true,
+            bodyStructure: true,
+            size: true,
+          }
+        )) {
+          messages.push({
+            uid: message.uid,
+            id: `${resolvedFolder}-${message.uid}`,
+            messageId: message.envelope?.messageId,
+            from: message.envelope?.from?.[0] ? {
+              name: message.envelope.from[0].name || '',
+              email: `${message.envelope.from[0].mailbox}@${message.envelope.from[0].host}`,
+            } : { name: '', email: '' },
+            to: (message.envelope?.to || []).map(addr => ({
+              name: addr.name || '',
+              email: `${addr.mailbox}@${addr.host}`,
+            })),
+            subject: message.envelope?.subject || '(no subject)',
+            date: message.envelope?.date || new Date(),
+            read: message.flags?.has('\\Seen') || false,
+            starred: message.flags?.has('\\Flagged') || false,
+            hasAttachments: this.hasAttachments(message.bodyStructure),
+            labels: [resolvedFolder.toLowerCase()],
+          });
         }
-      )) {
-        messages.push({
-          uid: message.uid,
-          id: `${folder}-${message.uid}`,
-          messageId: message.envelope?.messageId,
-          from: message.envelope?.from?.[0] ? {
-            name: message.envelope.from[0].name || '',
-            email: `${message.envelope.from[0].mailbox}@${message.envelope.from[0].host}`,
-          } : { name: '', email: '' },
-          to: (message.envelope?.to || []).map(addr => ({
-            name: addr.name || '',
-            email: `${addr.mailbox}@${addr.host}`,
-          })),
-          subject: message.envelope?.subject || '(no subject)',
-          date: message.envelope?.date || new Date(),
-          read: message.flags?.has('\\Seen') || false,
-          starred: message.flags?.has('\\Flagged') || false,
-          hasAttachments: this.hasAttachments(message.bodyStructure),
-          labels: [folder.toLowerCase()],
-        });
+      } catch (fetchError) {
+        // Handle empty result set or invalid UID range gracefully
+        if (fetchError.responseText?.includes('Invalid messageset')) {
+          return {
+            emails: [],
+            total: 0,
+            folder,
+          };
+        }
+        throw fetchError;
       }
       
       return {

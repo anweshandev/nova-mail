@@ -25,7 +25,6 @@ export default defineConfig({
       'livedemo.anweshan.cv'
     ]
   },
-  envPrefix: "PUBLIC_",
   resolve: {
     alias: [
       /* eslint-disable no-undef */

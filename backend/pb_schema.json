@@ -1,0 +1,199 @@
+[
+  {
+    "name": "users",
+    "type": "base",
+    "schema": [
+      {
+        "name": "email",
+        "type": "email",
+        "required": true,
+        "options": {
+          "exceptDomains": [],
+          "onlyDomains": []
+        }
+      },
+      {
+        "name": "encrypted_password",
+        "type": "text",
+        "required": true,
+        "options": {}
+      },
+      {
+        "name": "name",
+        "type": "text",
+        "required": false,
+        "options": {}
+      },
+      {
+        "name": "imap_host",
+        "type": "text",
+        "required": true,
+        "options": {}
+      },
+      {
+        "name": "imap_port",
+        "type": "number",
+        "required": true,
+        "options": {}
+      },
+      {
+        "name": "imap_security",
+        "type": "select",
+        "required": true,
+        "options": {
+          "maxSelect": 1,
+          "values": ["SSL/TLS", "STARTTLS", "None"]
+        }
+      },
+      {
+        "name": "smtp_host",
+        "type": "text",
+        "required": true,
+        "options": {}
+      },
+      {
+        "name": "smtp_port",
+        "type": "number",
+        "required": true,
+        "options": {}
+      },
+      {
+        "name": "smtp_security",
+        "type": "select",
+        "required": true,
+        "options": {
+          "maxSelect": 1,
+          "values": ["SSL/TLS", "STARTTLS", "None"]
+        }
+      },
+      {
+        "name": "password_version",
+        "type": "number",
+        "required": false,
+        "options": {}
+      },
+      {
+        "name": "last_login_at",
+        "type": "date",
+        "required": false,
+        "options": {}
+      }
+    ],
+    "indexes": [
+      "CREATE UNIQUE INDEX idx_users_email ON users (email)"
+    ]
+  },
+  {
+    "name": "sessions",
+    "type": "base",
+    "schema": [
+      {
+        "name": "user_id",
+        "type": "text",
+        "required": true,
+        "options": {}
+      },
+      {
+        "name": "jti",
+        "type": "text",
+        "required": true,
+        "options": {}
+      },
+      {
+        "name": "token",
+        "type": "text",
+        "required": true,
+        "options": {}
+      },
+      {
+        "name": "password_version",
+        "type": "number",
+        "required": true,
+        "options": {}
+      },
+      {
+        "name": "ip_address",
+        "type": "text",
+        "required": false,
+        "options": {}
+      },
+      {
+        "name": "user_agent",
+        "type": "text",
+        "required": false,
+        "options": {}
+      },
+      {
+        "name": "expires_at",
+        "type": "date",
+        "required": true,
+        "options": {}
+      },
+      {
+        "name": "last_used_at",
+        "type": "date",
+        "required": false,
+        "options": {}
+      }
+    ],
+    "indexes": [
+      "CREATE UNIQUE INDEX idx_sessions_jti ON sessions (jti)",
+      "CREATE INDEX idx_sessions_user_id ON sessions (user_id)",
+      "CREATE INDEX idx_sessions_expires ON sessions (expires_at)"
+    ]
+  },
+  {
+    "name": "user_settings",
+    "type": "base",
+    "schema": [
+      {
+        "name": "user_id",
+        "type": "text",
+        "required": true,
+        "options": {}
+      },
+      {
+        "name": "signature",
+        "type": "text",
+        "required": false,
+        "options": {}
+      },
+      {
+        "name": "auto_bcc",
+        "type": "bool",
+        "required": false,
+        "options": {}
+      },
+      {
+        "name": "default_folder",
+        "type": "text",
+        "required": false,
+        "options": {}
+      },
+      {
+        "name": "reading_pane",
+        "type": "select",
+        "required": false,
+        "options": {
+          "maxSelect": 1,
+          "values": ["right", "bottom", "none"]
+        }
+      },
+      {
+        "name": "emails_per_page",
+        "type": "number",
+        "required": false,
+        "options": {}
+      },
+      {
+        "name": "show_images",
+        "type": "bool",
+        "required": false,
+        "options": {}
+      }
+    ],
+    "indexes": [
+      "CREATE UNIQUE INDEX idx_user_settings_user ON user_settings (user_id)"
+    ]
+  }
+]

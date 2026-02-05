@@ -249,6 +249,27 @@ export const useEmailStore = create((set, get) => ({
   unreadCounts: {}, // { folderPath: { unseen, total } }
   pollingInterval: null, // For auto-refresh
 
+  // Reset store (called on logout)
+  reset: () => {
+    const { pollingInterval } = get();
+    if (pollingInterval) {
+      clearInterval(pollingInterval);
+    }
+    set({
+      emails: [],
+      selectedEmail: null,
+      selectedFolder: 'INBOX',
+      folders: [],
+      searchQuery: '',
+      searchResults: null,
+      error: null,
+      syncStatus: null,
+      unreadCounts: {},
+      pollingInterval: null,
+      isLoading: false,
+    });
+  },
+
   // Polling / Sync
   startPolling: (intervalMs = 60000) => {
     const { pollingInterval } = get();
