@@ -1,102 +1,97 @@
 import db from '../db/index.js';
 import jwt from 'jsonwebtoken';
-import { v4 as uuidv4 } from 'uuid';
-
-const JWT_SECRET = process.env.JWT_SECRET || 'novamail-secret-key-change-in-production';
-const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
+import crypto from 'crypto';
+import { getUserById } from './userService.js';
 
 /**
- * Session Service - Manages JWT sessions and validation
+ * Session Service - Handles JWT session management
  */
+
+const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production';
+const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
 
 /**
  * Create a new session and generate JWT token
  */
 export async function createSession(user, metadata = {}) {
-  const jti = uuidv4(); // Unique JWT ID
-  const expiresIn = JWT_EXPIRES_IN;
+  const jti = crypto.randomUUID();
+  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
   
-  // Calculate expiration date
-  const expiresAt = new Date();
-  const match = expiresIn.match(/^(\d+)([dhms])$/);
-  if (match) {
-    const [, value, unit] = match;
-    const num = parseInt(value);
-    switch (unit) {
-      case 'd': expiresAt.setDate(expiresAt.getDate() + num); break;
-      case 'h': expiresAt.setHours(expiresAt.getHours() + num); break;
-      case 'm': expiresAt.setMinutes(expiresAt.getMinutes() + num); break;
-      case 's': expiresAt.setSeconds(expiresAt.getSeconds() + num); break;
-    }
-  }
-
-  // Create JWT token
+  // Generate JWT token
   const token = jwt.sign(
     {
-      jti,
-      userId: user.id,
+      sub: user.id,
       email: user.email,
-      passwordVersion: user.passwordVersion,
+      jti,
     },
     JWT_SECRET,
-    { expiresIn }
+    { expiresIn: JWT_EXPIRES_IN }
   );
 
   // Store session in database
   await db('sessions').insert({
+    id: crypto.randomUUID(),
     user_id: user.id,
-    token,
     jti,
+    token,
     password_version: user.passwordVersion,
     ip_address: metadata.ipAddress || null,
     user_agent: metadata.userAgent || null,
-    expires_at: expiresAt,
+    expires_at: expiresAt.toISOString(),
+    last_used_at: new Date().toISOString(),
   });
 
-  return { token, jti, expiresAt };
+  return {
+    token,
+    expiresAt,
+    jti,
+  };
 }
 
 /**
- * Validate a JWT token and session
+ * Validate a session token
  */
 export async function validateSession(token) {
   try {
-    // Verify JWT
+    // Verify JWT signature
     const decoded = jwt.verify(token, JWT_SECRET);
     
-    // Check if session exists in database
+    // Check session exists in database
     const session = await db('sessions')
-      .where({ jti: decoded.jti })
+      .where('jti', decoded.jti)
       .first();
-
+    
     if (!session) {
-      return { valid: false, reason: 'Session not found' };
+      return { valid: false, reason: 'Session not found or revoked' };
     }
-
-    // Check if session has expired
-    if (new Date(session.expires_at) < new Date()) {
-      await db('sessions').where({ id: session.id }).delete();
+    
+    // Check if session is expired
+    if (new Date() > new Date(session.expires_at)) {
       return { valid: false, reason: 'Session expired' };
     }
-
-    // Check if password version matches (password was changed)
-    if (session.password_version !== decoded.passwordVersion) {
-      await db('sessions').where({ id: session.id }).delete();
-      return { valid: false, reason: 'Password changed' };
+    
+    // Get user and check password version
+    const user = await getUserById(session.user_id);
+    if (!user) {
+      return { valid: false, reason: 'User not found' };
     }
-
-    // Update last_used_at
+    
+    if (session.password_version !== user.passwordVersion) {
+      return { valid: false, reason: 'Password changed, please login again' };
+    }
+    
+    // Update last used timestamp
     await db('sessions')
-      .where({ id: session.id })
-      .update({ last_used_at: db.fn.now() });
-
+      .where('id', session.id)
+      .update({ last_used_at: new Date().toISOString() });
+    
     return {
       valid: true,
-      session,
-      user: {
-        id: decoded.userId,
-        email: decoded.email,
-        passwordVersion: decoded.passwordVersion,
+      user,
+      session: {
+        id: session.id,
+        jti: session.jti,
+        expiresAt: session.expires_at,
       },
     };
   } catch (error) {
@@ -106,51 +101,55 @@ export async function validateSession(token) {
     if (error.name === 'JsonWebTokenError') {
       return { valid: false, reason: 'Invalid token' };
     }
-    throw error;
+    return { valid: false, reason: 'Authentication failed' };
   }
 }
 
 /**
- * Revoke a session (logout)
+ * Revoke a session by JTI
  */
 export async function revokeSession(jti) {
-  await db('sessions').where({ jti }).delete();
+  await db('sessions').where('jti', jti).delete();
+  return true;
 }
 
 /**
  * Revoke all sessions for a user
  */
 export async function revokeAllUserSessions(userId) {
-  await db('sessions').where({ user_id: userId }).delete();
+  const result = await db('sessions').where('user_id', userId).delete();
+  return { revoked: result };
 }
 
 /**
  * Get all active sessions for a user
  */
 export async function getUserSessions(userId) {
+  const now = new Date().toISOString();
   const sessions = await db('sessions')
-    .where({ user_id: userId })
-    .where('expires_at', '>', db.fn.now())
+    .where('user_id', userId)
+    .where('expires_at', '>', now)
     .orderBy('last_used_at', 'desc');
-
-  return sessions.map(session => ({
-    id: session.id,
-    jti: session.jti,
-    ipAddress: session.ip_address,
-    userAgent: session.user_agent,
-    createdAt: session.created_at,
-    lastUsedAt: session.last_used_at,
-    expiresAt: session.expires_at,
+  
+  return sessions.map(s => ({
+    id: s.id,
+    jti: s.jti,
+    ipAddress: s.ip_address,
+    userAgent: s.user_agent,
+    createdAt: s.created_at,
+    lastUsedAt: s.last_used_at,
+    expiresAt: s.expires_at,
   }));
 }
 
 /**
- * Clean up expired sessions (run periodically)
+ * Cleanup expired sessions
  */
 export async function cleanupExpiredSessions() {
+  const now = new Date().toISOString();
   const deleted = await db('sessions')
-    .where('expires_at', '<', db.fn.now())
+    .where('expires_at', '<', now)
     .delete();
-
+  
   return { deleted };
 }

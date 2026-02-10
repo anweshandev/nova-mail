@@ -24,10 +24,11 @@ RUN addgroup -g 1001 -S nodejs && \
 # Copy from builder
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package.json ./
+COPY --from=builder /app/knexfile.js ./
 COPY --from=builder /app/src ./src
 
-# Set ownership
-RUN chown -R novamail:nodejs /app
+# Create data directory for SQLite
+RUN mkdir -p /app/data && chown -R novamail:nodejs /app
 
 USER novamail
 

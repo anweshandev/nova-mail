@@ -10,7 +10,8 @@ import folderRoutes from './routes/folders.js';
 import settingsRoutes from './routes/settings.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { rateLimiter } from './middleware/rateLimiter.js';
-import { initPocketBase, cleanupExpiredSessions } from './services/pocketbase.js';
+import db from './db/index.js';
+import { cleanupExpiredSessions } from './services/sessionService.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -72,16 +73,20 @@ app.use(errorHandler);
 
 // Start server
 async function start() {
-  // Initialize PocketBase connection
-  const pbConnected = await initPocketBase();
-  if (!pbConnected) {
-    console.warn('⚠️  PocketBase not available - user sessions will not persist');
+  // Run database migrations
+  try {
+    console.log('🔄 Running database migrations...');
+    await db.migrate.latest();
+    console.log('✅ Database migrations complete');
+  } catch (error) {
+    console.error('❌ Database migration failed:', error);
+    process.exit(1);
   }
   
   app.listen(PORT, () => {
     console.log(`✨ NovaMail Backend running on port ${PORT}`);
     console.log(`📧 Environment: ${process.env.NODE_ENV || 'development'}`);
-    console.log(`💾 Database: PocketBase (${process.env.POCKETBASE_URL || 'http://127.0.0.1:8090'})`);
+    console.log(`💾 Database: SQLite (WAL mode)`);
     console.log(`🔗 Health check: http://localhost:${PORT}/health`);
   });
 }

@@ -1,22 +1,12 @@
 import { Router } from 'express';
-import jwt from 'jsonwebtoken';
-import crypto from 'crypto';
 import { authenticate } from '../middleware/auth.js';
 import { createImapService } from '../services/imap.js';
 import { createSmtpService } from '../services/smtp.js';
-import {
-  upsertUser,
-  getUserByEmail,
-  createSession,
-  revokeSessionByJti,
-  getUserSessions,
-} from '../services/pocketbase.js';
+import { upsertUser, getUserByEmail } from '../services/userService.js';
+import { createSession, revokeSession, getUserSessions } from '../services/sessionService.js';
 import { z } from 'zod';
 
 const router = Router();
-
-const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production';
-const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
 
 // Validation schemas - imapServer/smtpServer are now optional (will be auto-discovered)
 const loginSchema = z.object({
@@ -316,21 +306,8 @@ router.post('/login', async (req, res, next) => {
     });
     console.log(`User authenticated: ${email}`);
     
-    // Generate JWT token
-    const jti = crypto.randomUUID();
-    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
-    const token = jwt.sign(
-      {
-        sub: user.id,
-        email: user.email,
-        jti,
-      },
-      JWT_SECRET,
-      { expiresIn: JWT_EXPIRES_IN }
-    );
-    
-    // Create session in database
-    await createSession(user, jti, token, expiresAt, {
+    // Create session and generate JWT token
+    const session = await createSession(user, {
       ipAddress: req.ip || req.connection.remoteAddress,
       userAgent: req.headers['user-agent'],
     });
@@ -345,7 +322,7 @@ router.post('/login', async (req, res, next) => {
     
     res.json({
       success: true,
-      token,
+      token: session.token,
       user: {
         email: user.email,
         name: user.name,
@@ -366,7 +343,7 @@ router.post('/logout', authenticate, async (req, res, next) => {
   try {
     // Revoke current session using the JTI from authenticated request
     if (req.user.sessionJti) {
-      await revokeSessionByJti(req.user.sessionJti);
+      await revokeSession(req.user.sessionJti);
     }
     
     res.json({ success: true, message: 'Logged out successfully' });
@@ -408,7 +385,7 @@ router.get('/sessions', authenticate, async (req, res, next) => {
  */
 router.delete('/sessions/:jti', authenticate, async (req, res, next) => {
   try {
-    await revokeSessionByJti(req.params.jti);
+    await revokeSession(req.params.jti);
     res.json({ success: true, message: 'Session revoked' });
   } catch (error) {
     next(error);

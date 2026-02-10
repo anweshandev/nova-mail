@@ -47,38 +47,11 @@ NovaMail Backend serves as the bridge between your frontend email client and mai
 
 - Node.js 20+
 - pnpm (recommended) or npm
-- PocketBase (for session and user storage)
 - Access to an IMAP/SMTP mail server (e.g., docker-mailserver)
 
 ## Quick Start
 
-### 1. Start PocketBase
-
-NovaMail uses PocketBase for storing users, sessions, and settings. Download and run PocketBase first:
-
-```bash
-# Download PocketBase from https://pocketbase.io/docs/
-# Extract and run it:
-./pocketbase serve
-
-# PocketBase will start on http://127.0.0.1:8090
-# On first run, go to http://127.0.0.1:8090/_/ to create admin account
-```
-
-#### Import Collections
-
-After starting PocketBase, import the schema by:
-
-1. Go to PocketBase Admin UI (`http://127.0.0.1:8090/_/`)
-2. Settings → Import Collections
-3. Upload `pb_schema.json` from this directory
-
-Or manually create these collections:
-- `users` - Stores user email configs and encrypted passwords
-- `sessions` - Stores active JWT sessions  
-- `user_settings` - Stores user preferences
-
-### 2. Local Development
+### 1. Local Development
 
 ```bash
 # Install dependencies
@@ -90,12 +63,17 @@ cp .env.example .env
 # Edit .env with your settings
 # At minimum, set JWT_SECRET to a secure random string
 
+# Run database migrations
+pnpm migrate
+
 # Start development server (with auto-reload)
 pnpm dev
 
 # Or start production server
 pnpm start
 ```
+
+The SQLite database will be created automatically in the `./data` directory with WAL mode enabled for better concurrency.
 
 #### How to generate your JWT Secret (Quick Methods): 
 
@@ -128,7 +106,7 @@ Visit [jwtsecretkeygenerator.com](https://jwtsecretkeygenerator.com/) to generat
 
 ### Docker Deployment
 
-Docker Compose includes both PocketBase and the NovaMail API:
+Docker Compose runs the NovaMail API with SQLite database:
 
 ```bash
 # Build and run with Docker Compose
@@ -136,8 +114,6 @@ docker-compose up -d
 
 # View logs
 docker-compose logs -f novamail-api
-
-# Access PocketBase admin at http://localhost:8090/_/
 
 # Stop
 docker-compose down
@@ -152,7 +128,7 @@ docker-compose down
 | `JWT_SECRET` | JWT signing secret | (required) |
 | `JWT_EXPIRES_IN` | Token expiration | `7d` |
 | `ENCRYPTION_KEY` | Password encryption key | (uses JWT_SECRET if not set) |
-| `POCKETBASE_URL` | PocketBase server URL | `http://127.0.0.1:8090` |
+| `DATABASE_PATH` | SQLite database file path | `./data/novamail.db` |
 | `CORS_ORIGIN` | Allowed CORS origin | `http://localhost:5173` |
 
 ## API Reference

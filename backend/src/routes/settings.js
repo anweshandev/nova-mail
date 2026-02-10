@@ -1,5 +1,11 @@
 import { Router } from 'express';
 import { authenticate } from '../middleware/auth.js';
+import { 
+  getUserSettings, 
+  updateUserSettings, 
+  getSignature, 
+  updateSignature 
+} from '../services/settingsService.js';
 
 const router = Router();
 
@@ -10,61 +16,54 @@ router.use(authenticate);
  * GET /api/settings
  * Get user settings
  */
-router.get('/', async (req, res) => {
-  // Settings are typically stored client-side or in a database
-  // For now, return default settings
-  res.json({
-    settings: {
-      displayDensity: 'default',
-      theme: 'system',
-      conversationView: true,
-      previewPane: 'right',
-      autoAdvance: true,
-      desktopNotifications: false,
-      signature: '',
-      sendCancellation: 5,
-    },
-  });
+router.get('/', async (req, res, next) => {
+  try {
+    const settings = await getUserSettings(req.user.id);
+    res.json({ settings });
+  } catch (error) {
+    next(error);
+  }
 });
 
 /**
  * PATCH /api/settings
  * Update user settings
  */
-router.patch('/', async (req, res) => {
-  // In a real implementation, you'd save these to a database
-  // For now, just acknowledge the update
-  const { settings } = req.body;
-  
-  res.json({
-    success: true,
-    settings,
-  });
+router.patch('/', async (req, res, next) => {
+  try {
+    const { settings } = req.body;
+    const updated = await updateUserSettings(req.user.id, settings);
+    res.json({ success: true, settings: updated });
+  } catch (error) {
+    next(error);
+  }
 });
 
 /**
  * GET /api/settings/signature
  * Get email signature
  */
-router.get('/signature', async (req, res) => {
-  res.json({
-    signature: '',
-    useSignature: false,
-  });
+router.get('/signature', async (req, res, next) => {
+  try {
+    const signature = await getSignature(req.user.id);
+    res.json(signature);
+  } catch (error) {
+    next(error);
+  }
 });
 
 /**
  * PUT /api/settings/signature
  * Update email signature
  */
-router.put('/signature', async (req, res) => {
-  const { signature, useSignature } = req.body;
-  
-  res.json({
-    success: true,
-    signature,
-    useSignature,
-  });
+router.put('/signature', async (req, res, next) => {
+  try {
+    const { signature, useSignature } = req.body;
+    const result = await updateSignature(req.user.id, signature, useSignature);
+    res.json({ success: true, ...result });
+  } catch (error) {
+    next(error);
+  }
 });
 
 /**
