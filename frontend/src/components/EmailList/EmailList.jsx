@@ -7,8 +7,6 @@ import {
   Mail, 
   MailOpen, 
   Tag,
-  MoreVertical,
-  RefreshCw,
   ChevronDown,
   AlertCircle,
   Inbox,
@@ -21,7 +19,7 @@ import {
 } from 'lucide-react';
 import { useEmailStore } from '../../store/emailStore';
 import { useSettingsStore } from '../../store/settingsStore';
-import { useState, useCallback } from 'react';
+import { useState } from 'react';
 import toast from 'react-hot-toast';
 
 export default function EmailList() {
@@ -49,20 +47,10 @@ export default function EmailList() {
   } = useEmailStore();
 
   const [showLabelMenu, setShowLabelMenu] = useState(false);
-  const [isRefreshing, setIsRefreshing] = useState(false);
   const [showReadingPaneMenu, setShowReadingPaneMenu] = useState(false);
 
   const { readingPane, setReadingPane } = useSettingsStore();
   const emails = getFilteredEmails();
-
-  const handleRefresh = useCallback(() => {
-    setIsRefreshing(true);
-    // Simulate refresh - in real app this would fetch new emails
-    setTimeout(() => {
-      setIsRefreshing(false);
-      toast.success('Inbox refreshed');
-    }, 800);
-  }, []);
 
   const handleDeleteSelected = () => {
     const count = selectedEmails.length;
@@ -156,9 +144,16 @@ export default function EmailList() {
   };
 
   const handleEmailClick = (email) => {
-    setSelectedEmail(email);
+    // Set the email as selected with a loading indicator
+    // This shows the loading skeleton in EmailView immediately
+    setSelectedEmail({ ...email, _loading: true });
     if (!email.read) {
       markAsRead(email.id);
+    }
+    // Fetch full email (with body, attachments) from the API
+    if (email.uid && selectedFolder) {
+      const folder = email.folder || selectedFolder;
+      useEmailStore.getState().fetchEmail(folder, email.uid);
     }
   };
 
@@ -267,18 +262,6 @@ export default function EmailList() {
         ) : (
           // Normal header
           <>
-            <button 
-              onClick={handleRefresh}
-              className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors ml-2" 
-              title="Refresh"
-              disabled={isRefreshing}
-            >
-              <RefreshCw className={`w-5 h-5 text-gray-600 dark:text-gray-300 ${isRefreshing ? 'animate-spin' : ''}`} />
-            </button>
-            <button className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors">
-              <MoreVertical className="w-5 h-5 text-gray-600 dark:text-gray-300" />
-            </button>
-            
             {/* Reading Pane Toggle */}
             <div className="relative">
               <button 
@@ -419,7 +402,7 @@ export default function EmailList() {
 
                   {/* Sender */}
                   <div className={`w-44 flex-shrink-0 truncate ${!email.read ? 'font-semibold text-gray-900 dark:text-gray-100' : 'text-gray-700 dark:text-gray-300'}`}>
-                    {email.from.name || email.from.email}
+                    {(email.from?.name && email.from.name.trim()) || email.from?.email || 'Unknown Sender'}
                   </div>
 
                   {/* Labels */}
@@ -448,7 +431,7 @@ export default function EmailList() {
                       {email.subject}
                     </span>
                     <span className="text-gray-500 dark:text-gray-400 truncate hidden lg:inline">
-                      - {(email.snippet || email.body.replace(/<[^>]*>/g, '')).substring(0, 80)}
+                      - {(email.snippet || email.body?.replace(/<[^>]*>/g, '') || '').substring(0, 80)}
                     </span>
                   </div>
 

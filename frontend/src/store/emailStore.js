@@ -242,6 +242,7 @@ export const useEmailStore = create((set, get) => ({
   isComposeOpen: false,
   composeData: null,
   isLoading: false,
+  isLoadingEmail: false,
   searchResults: null,
   error: null,
   isApiEnabled: true, // Set to false to use mock data
@@ -267,6 +268,7 @@ export const useEmailStore = create((set, get) => ({
       unreadCounts: {},
       pollingInterval: null,
       isLoading: false,
+      isLoadingEmail: false,
     });
   },
 
@@ -363,14 +365,19 @@ export const useEmailStore = create((set, get) => ({
     const { isApiEnabled } = get();
     if (!isApiEnabled) return null;
     
-    set({ isLoading: true });
+    set({ isLoadingEmail: true });
     try {
       const email = await emailsApi.get(folder, uid);
-      set({ selectedEmail: email, isLoading: false });
+      // Update both selectedEmail and the email in the list
+      set((state) => ({
+        selectedEmail: email,
+        emails: state.emails.map(e => e.id === email.id ? { ...e, ...email } : e),
+        isLoadingEmail: false,
+      }));
       return email;
     } catch (error) {
       console.error('Failed to fetch email:', error);
-      set({ error: error.message, isLoading: false });
+      set({ error: error.message, isLoadingEmail: false });
       throw error;
     }
   },
@@ -469,7 +476,7 @@ export const useEmailStore = create((set, get) => ({
     // API call
     if (isApiEnabled && email.uid) {
       try {
-        await emailsApi.toggleStar(selectedFolder, email.uid, newStarred);
+        await emailsApi.toggleStar(email.folder || selectedFolder, email.uid, newStarred);
       } catch (error) {
         console.error('Failed to toggle star:', error);
         // Revert on error
@@ -502,7 +509,7 @@ export const useEmailStore = create((set, get) => ({
     // API call
     if (isApiEnabled && email.uid) {
       try {
-        await emailsApi.markAsImportant(selectedFolder, email.uid, newImportant);
+        await emailsApi.markAsImportant(email.folder || selectedFolder, email.uid, newImportant);
       } catch (error) {
         console.error('Failed to toggle important:', error);
         // Revert on error
@@ -529,7 +536,7 @@ export const useEmailStore = create((set, get) => ({
     // API call
     if (isApiEnabled && email?.uid) {
       try {
-        await emailsApi.markAsRead(selectedFolder, email.uid, true);
+        await emailsApi.markAsRead(email.folder || selectedFolder, email.uid, true);
       } catch (error) {
         console.error('Failed to mark as read:', error);
       }
@@ -550,7 +557,7 @@ export const useEmailStore = create((set, get) => ({
     // API call
     if (isApiEnabled && email?.uid) {
       try {
-        await emailsApi.markAsRead(selectedFolder, email.uid, false);
+        await emailsApi.markAsRead(email.folder || selectedFolder, email.uid, false);
       } catch (error) {
         console.error('Failed to mark as unread:', error);
       }
@@ -572,7 +579,7 @@ export const useEmailStore = create((set, get) => ({
     if (isApiEnabled) {
       const emailsToUpdate = emails
         .filter(e => selectedEmails.includes(e.id) && e.uid)
-        .map(e => ({ folder: selectedFolder, uid: e.uid }));
+        .map(e => ({ folder: e.folder || selectedFolder, uid: e.uid }));
       
       if (emailsToUpdate.length > 0) {
         try {
@@ -599,7 +606,7 @@ export const useEmailStore = create((set, get) => ({
     if (isApiEnabled) {
       const emailsToUpdate = emails
         .filter(e => selectedEmails.includes(e.id) && e.uid)
-        .map(e => ({ folder: selectedFolder, uid: e.uid }));
+        .map(e => ({ folder: e.folder || selectedFolder, uid: e.uid }));
       
       if (emailsToUpdate.length > 0) {
         try {
@@ -628,7 +635,7 @@ export const useEmailStore = create((set, get) => ({
     // API call
     if (isApiEnabled && email?.uid) {
       try {
-        await emailsApi.delete(selectedFolder, email.uid);
+        await emailsApi.delete(email.folder || selectedFolder, email.uid);
       } catch (error) {
         console.error('Failed to delete email:', error);
       }
@@ -653,7 +660,7 @@ export const useEmailStore = create((set, get) => ({
     if (isApiEnabled) {
       const emailsToDelete = emails
         .filter(e => selectedEmails.includes(e.id) && e.uid)
-        .map(e => ({ folder: selectedFolder, uid: e.uid }));
+        .map(e => ({ folder: e.folder || selectedFolder, uid: e.uid }));
       
       if (emailsToDelete.length > 0) {
         try {
@@ -682,7 +689,7 @@ export const useEmailStore = create((set, get) => ({
     // API call
     if (isApiEnabled && email?.uid) {
       try {
-        await emailsApi.archive(selectedFolder, email.uid);
+        await emailsApi.archive(email.folder || selectedFolder, email.uid);
       } catch (error) {
         console.error('Failed to archive email:', error);
       }
@@ -706,7 +713,7 @@ export const useEmailStore = create((set, get) => ({
     if (isApiEnabled) {
       const emailsToArchive = emails
         .filter(e => selectedEmails.includes(e.id) && e.uid)
-        .map(e => ({ folder: selectedFolder, uid: e.uid }));
+        .map(e => ({ folder: e.folder || selectedFolder, uid: e.uid }));
       
       if (emailsToArchive.length > 0) {
         try {
@@ -914,7 +921,7 @@ export const useEmailStore = create((set, get) => ({
     // API call
     if (isApiEnabled && email?.uid) {
       try {
-        await emailsApi.markAsSpam(selectedFolder, email.uid);
+        await emailsApi.markAsSpam(email.folder || selectedFolder, email.uid);
       } catch (error) {
         console.error('Failed to mark as spam:', error);
       }
@@ -936,7 +943,7 @@ export const useEmailStore = create((set, get) => ({
     // API call
     if (isApiEnabled && email?.uid) {
       try {
-        await emailsApi.markAsNotSpam(selectedFolder, email.uid);
+        await emailsApi.markAsNotSpam(email.folder || selectedFolder, email.uid);
       } catch (error) {
         console.error('Failed to mark as not spam:', error);
       }
@@ -960,7 +967,7 @@ export const useEmailStore = create((set, get) => ({
     if (isApiEnabled) {
       const emailsToSpam = emails
         .filter(e => selectedEmails.includes(e.id) && e.uid)
-        .map(e => ({ folder: selectedFolder, uid: e.uid }));
+        .map(e => ({ folder: e.folder || selectedFolder, uid: e.uid }));
       
       if (emailsToSpam.length > 0) {
         try {
@@ -989,7 +996,7 @@ export const useEmailStore = create((set, get) => ({
     if (isApiEnabled) {
       const emailsToStar = emails
         .filter(e => selectedEmails.includes(e.id) && e.uid)
-        .map(e => ({ folder: selectedFolder, uid: e.uid }));
+        .map(e => ({ folder: e.folder || selectedFolder, uid: e.uid }));
       
       if (emailsToStar.length > 0) {
         try {
@@ -1156,7 +1163,10 @@ export const useEmailStore = create((set, get) => ({
         .sort((a, b) => new Date(b.date) - new Date(a.date));
     }
 
-    const filtered = emails.filter((email) => email.labels.includes(selectedFolder));
+    const folderLower = selectedFolder.toLowerCase();
+    const filtered = emails.filter((email) => 
+      email.labels.some(l => l.toLowerCase() === folderLower)
+    );
     return filtered.sort((a, b) => new Date(b.date) - new Date(a.date));
   },
 
@@ -1170,7 +1180,8 @@ export const useEmailStore = create((set, get) => ({
       return emails.filter(e => e.important && !e.read && !e.labels.includes('trash')).length;
     }
     
-    return emails.filter((email) => email.labels.includes(folder) && !email.read).length;
+    const fl = folder.toLowerCase();
+    return emails.filter((email) => email.labels.some(l => l.toLowerCase() === fl) && !email.read).length;
   },
 
   getTotalCount: (folder) => {
@@ -1183,7 +1194,8 @@ export const useEmailStore = create((set, get) => ({
       return emails.filter(e => e.important && !e.labels.includes('trash')).length;
     }
     
-    return emails.filter((email) => email.labels.includes(folder)).length;
+    const fl = folder.toLowerCase();
+    return emails.filter((email) => email.labels.some(l => l.toLowerCase() === fl)).length;
   },
 
   getLabelById: (labelId) => {

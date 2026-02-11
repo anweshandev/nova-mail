@@ -8,6 +8,8 @@ services:
     restart: unless-stopped
     ports:
       - "3001:3001"
+    volumes:
+      - ./data:/app/data
     environment:
       - NODE_ENV=production
       - PORT=3001
@@ -21,15 +23,15 @@ services:
       # Rate limiting
       - RATE_LIMIT_WINDOW_MS=${RATE_LIMIT_WINDOW_MS:-60000}
       - RATE_LIMIT_MAX_REQUESTS=${RATE_LIMIT_MAX_REQUESTS:-100}
-    volumes:
-      - novamail-data:/app/data
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://localhost:3001/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 10s
-
-volumes:
-  novamail-data:
-    driver: local
+      start_period: 5s
+    command: >
+      sh -c "mkdir -p data &&
+             if [ ! -f data/novamail.db ]; then touch data/novamail.db; fi &&
+             chmod 666 data/novamail.db &&
+             npx knex migrate:latest &&
+             node src/index.js"

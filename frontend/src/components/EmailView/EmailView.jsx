@@ -50,6 +50,7 @@ export default function EmailView() {
     selectedFolder,
     emptyTrash,
     emptySpam,
+    isLoadingEmail,
   } = useEmailStore();
 
   const [showLabelMenu, setShowLabelMenu] = useState(false);
@@ -68,6 +69,9 @@ export default function EmailView() {
       </div>
     );
   }
+
+  // Show loading skeleton while full email is being fetched
+  const isLoading = isLoadingEmail || selectedEmail._loading;
 
   const formatFileSize = (bytes) => {
     if (bytes < 1024) return bytes + ' B';
@@ -97,9 +101,11 @@ export default function EmailView() {
   };
 
   const handleForward = () => {
+    const fromName = (selectedEmail.from?.name && selectedEmail.from.name.trim()) || selectedEmail.from?.email || 'Unknown Sender';
+    const fromEmail = selectedEmail.from?.email || 'unknown@unknown.com';
     openCompose({
       subject: `Fwd: ${selectedEmail.subject}`,
-      body: `\n\n---------- Forwarded message ----------\nFrom: ${selectedEmail.from.name} <${selectedEmail.from.email}>\nDate: ${format(new Date(selectedEmail.date), 'PPpp')}\nSubject: ${selectedEmail.subject}\n\n${selectedEmail.body}`,
+      body: `\n\n---------- Forwarded message ----------\nFrom: ${fromName} <${fromEmail}>\nDate: ${format(new Date(selectedEmail.date), 'PPpp')}\nSubject: ${selectedEmail.subject}\n\n${selectedEmail.body}`,
     });
   };
 
@@ -355,6 +361,35 @@ export default function EmailView() {
 
       {/* Email Content */}
       <div className="flex-1 overflow-y-auto p-6">
+        {isLoading ? (
+          /* Loading Skeleton */
+          <div className="animate-pulse">
+            {/* Subject skeleton */}
+            <div className="flex items-start gap-3 mb-4">
+              <div className="h-8 bg-gray-200 dark:bg-gray-700 rounded flex-1" />
+              <div className="w-6 h-6 bg-gray-200 dark:bg-gray-700 rounded-full" />
+            </div>
+            {/* Sender skeleton */}
+            <div className="flex items-start gap-4 mb-6">
+              <div className="w-10 h-10 bg-gray-200 dark:bg-gray-700 rounded-full flex-shrink-0" />
+              <div className="flex-1 space-y-2">
+                <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-48" />
+                <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-32" />
+              </div>
+              <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-28" />
+            </div>
+            {/* Body skeleton */}
+            <div className="space-y-3">
+              <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-full" />
+              <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-5/6" />
+              <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-4/6" />
+              <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-full" />
+              <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-3/4" />
+              <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-2/3" />
+            </div>
+          </div>
+        ) : (
+        <>
         {/* Subject & Labels */}
         <div className="flex items-start gap-3 mb-4">
           <h1 className="text-2xl font-normal text-gray-900 dark:text-gray-100 flex-1">
@@ -396,16 +431,16 @@ export default function EmailView() {
         {/* Sender Info - Gmail Style */}
         <div className="flex items-start gap-4 mb-6">
           <img 
-            src={getAvatarUrl(selectedEmail.from.email, 40)} 
+            src={getAvatarUrl(selectedEmail.from?.email || 'unknown@unknown.com', 40)} 
             alt="" 
             className="w-10 h-10 rounded-full flex-shrink-0"
           />
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
               <span className="font-medium text-gray-900 dark:text-gray-100">
-                {selectedEmail.from.name || selectedEmail.from.email}
+                {(selectedEmail.from?.name && selectedEmail.from.name.trim()) || selectedEmail.from?.email || 'Unknown Sender'}
               </span>
-              {!showFullRecipients && (
+              {!showFullRecipients && selectedEmail.from?.email && selectedEmail.from.name && selectedEmail.from.name.trim() && (
                 <span className="text-sm text-gray-500 dark:text-gray-400">
                   &lt;{selectedEmail.from.email}&gt;
                 </span>
@@ -439,12 +474,11 @@ export default function EmailView() {
                   {/* From */}
                   <span className="text-gray-500 dark:text-gray-400">from:</span>
                   <div>
-                    <span className="font-medium text-gray-900 dark:text-gray-100">{selectedEmail.from.name}</span>
-                    {selectedEmail.from.name && (
+                    <span className="font-medium text-gray-900 dark:text-gray-100">
+                      {(selectedEmail.from?.name && selectedEmail.from.name.trim()) || selectedEmail.from?.email || 'Unknown Sender'}
+                    </span>
+                    {selectedEmail.from?.name && selectedEmail.from.name.trim() && selectedEmail.from?.email && (
                       <span className="text-gray-500 dark:text-gray-400"> &lt;{selectedEmail.from.email}&gt;</span>
-                    )}
-                    {!selectedEmail.from.name && (
-                      <span className="text-gray-900 dark:text-gray-100">{selectedEmail.from.email}</span>
                     )}
                   </div>
                   
@@ -453,13 +487,14 @@ export default function EmailView() {
                   <div className="text-gray-700 dark:text-gray-300">
                     {selectedEmail.to?.map((recipient, idx) => (
                       <span key={idx}>
-                        {recipient.name && (
+                        {recipient.name && recipient.name.trim() ? (
                           <>
                             <span>{recipient.name}</span>
                             <span className="text-gray-500 dark:text-gray-400"> &lt;{recipient.email}&gt;</span>
                           </>
+                        ) : (
+                          <span>{recipient.email}</span>
                         )}
-                        {!recipient.name && recipient.email}
                         {idx < selectedEmail.to.length - 1 && ', '}
                       </span>
                     ))}
@@ -472,13 +507,14 @@ export default function EmailView() {
                       <div className="text-gray-700 dark:text-gray-300">
                         {selectedEmail.cc.map((recipient, idx) => (
                           <span key={idx}>
-                            {recipient.name && (
+                            {recipient.name && recipient.name.trim() ? (
                               <>
                                 <span>{recipient.name}</span>
                                 <span className="text-gray-500 dark:text-gray-400"> &lt;{recipient.email}&gt;</span>
                               </>
+                            ) : (
+                              <span>{recipient.email}</span>
                             )}
-                            {!recipient.name && recipient.email}
                             {idx < selectedEmail.cc.length - 1 && ', '}
                           </span>
                         ))}
@@ -493,13 +529,14 @@ export default function EmailView() {
                       <div className="text-gray-700 dark:text-gray-300">
                         {selectedEmail.bcc.map((recipient, idx) => (
                           <span key={idx}>
-                            {recipient.name && (
+                            {recipient.name && recipient.name.trim() ? (
                               <>
                                 <span>{recipient.name}</span>
                                 <span className="text-gray-500 dark:text-gray-400"> &lt;{recipient.email}&gt;</span>
                               </>
+                            ) : (
+                              <span>{recipient.email}</span>
                             )}
-                            {!recipient.name && recipient.email}
                             {idx < selectedEmail.bcc.length - 1 && ', '}
                           </span>
                         ))}
@@ -547,10 +584,10 @@ export default function EmailView() {
                   </div>
                   <div className="min-w-0">
                     <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
-                      {attachment.name}
+                      {attachment.filename || attachment.name || 'Unnamed attachment'}
                     </p>
                     <p className="text-xs text-gray-500 dark:text-gray-400">
-                      {formatFileSize(attachment.size)}
+                      {formatFileSize(attachment.size || 0)}
                     </p>
                   </div>
                   <button className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors">
@@ -592,6 +629,8 @@ export default function EmailView() {
             Forward
           </button>
         </div>
+        </>
+        )}
       </div>
     </div>
   );

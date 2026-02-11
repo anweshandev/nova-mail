@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Menu, Search, Settings, HelpCircle, LogOut, User, Moon, Sun, Monitor, RefreshCw } from 'lucide-react';
+import { Menu, Search, LogOut, User, Moon, Sun, Monitor, RefreshCw } from 'lucide-react';
 import { useAuthStore } from '../../store/authStore';
 import { useEmailStore } from '../../store/emailStore';
 import { useThemeStore } from '../../store/themeStore';
@@ -89,12 +89,6 @@ export default function Header() {
           title={syncStatus?.lastSync ? `Last synced: ${new Date(syncStatus.lastSync).toLocaleTimeString()}` : 'Refresh emails'}
         >
           <RefreshCw className={`w-5 h-5 text-gray-600 dark:text-gray-300 ${isRefreshing ? 'animate-spin' : ''}`} />
-        </button>
-        <button className="p-2.5 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full transition-colors hidden sm:flex items-center justify-center">
-          <HelpCircle className="w-5 h-5 text-gray-600 dark:text-gray-300" />
-        </button>
-        <button className="p-2.5 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full transition-colors hidden sm:flex items-center justify-center">
-          <Settings className="w-5 h-5 text-gray-600 dark:text-gray-300" />
         </button>
 
         {/* Theme Toggle */}

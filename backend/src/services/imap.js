@@ -191,11 +191,113 @@ export class ImapService {
   }
 
   /**
+   * Extract email address from an IMAP envelope address object
+   * Handles cases where mailbox/host may be null/empty
+   */
+  _extractAddress(addr) {
+    if (!addr) return null;
+    const mailbox = addr.mailbox || '';
+    const host = addr.host || '';
+    const email = mailbox && host ? `${mailbox}@${host}` : (mailbox || host || '');
+    if (!email) return null;
+    return {
+      name: addr.name || '',
+      email,
+    };
+  }
+
+  /**
+   * Extract addresses from an envelope address list
+   */
+  _extractAddresses(addrs) {
+    if (!addrs || !Array.isArray(addrs)) return [];
+    return addrs.map(a => this._extractAddress(a)).filter(Boolean);
+  }
+
+  /**
+   * Parse a raw From header buffer to extract name and email.
+   * Used as fallback when IMAP envelope from fields are null/empty
+   * (common with automated/DMARC report emails).
+   */
+  _parseRawFromHeader(headerBuffer) {
+    if (!headerBuffer) return null;
+    try {
+      const headerStr = headerBuffer.toString('utf-8').trim();
+      // Match "From: ..." line (may span folded lines)
+      const fromMatch = headerStr.match(/^From:\s*(.+)/mi);
+      if (!fromMatch) return null;
+
+      const fromStr = fromMatch[1].trim();
+
+      // "Name <email>" or "\"Name\" <email>" format
+      const angleMatch = fromStr.match(/^(.*?)\s*<([^>]+@[^>]+)>\s*$/);
+      if (angleMatch) {
+        const name = angleMatch[1].replace(/^["']|["']$/g, '').trim();
+        return { name, email: angleMatch[2].trim() };
+      }
+
+      // Bare "<email>" format
+      const bareAngle = fromStr.match(/^<([^>]+@[^>]+)>\s*$/);
+      if (bareAngle) {
+        return { name: '', email: bareAngle[1].trim() };
+      }
+
+      // Plain email address
+      if (fromStr.includes('@')) {
+        return { name: '', email: fromStr.replace(/[<>]/g, '').trim() };
+      }
+
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Extract from address, with multiple fallback layers:
+   * 1. simpleParser parsed data (most reliable, available for single-email fetch)
+   * 2. IMAP envelope data
+   * 3. Raw From header buffer (fallback for broken envelopes)
+   */
+  _extractFrom(envelope, parsedFrom, headerBuffer) {
+    // Try parsed (simpleParser) first if available - most reliable
+    if (parsedFrom?.value?.[0]) {
+      const p = parsedFrom.value[0];
+      if (p.address) {
+        return { name: p.name || '', email: p.address };
+      }
+    }
+    // Try envelope
+    const addr = this._extractAddress(envelope?.from?.[0]);
+    if (addr) return addr;
+
+    // Fallback: parse raw From header
+    const headerAddr = this._parseRawFromHeader(headerBuffer);
+    if (headerAddr) return headerAddr;
+
+    return { name: '', email: '' };
+  }
+
+  /**
    * Get emails from a specific folder
+   * Handles virtual folders (starred, important, all) by searching flags in INBOX
    */
   async getEmails(folder = 'INBOX', options = {}) {
-    const client = await this.connect();
     const { limit = 50, offset = 0, search } = options;
+    const folderLower = folder.toLowerCase();
+
+    // Handle virtual folders that are based on flags, not real IMAP folders
+    if (folderLower === 'starred') {
+      return this._getEmailsByFlag('\\Flagged', 'starred', { limit, offset });
+    }
+    if (folderLower === 'important') {
+      return this._getEmailsByFlag('\\Important', 'important', { limit, offset });
+    }
+    if (folderLower === 'all') {
+      return this._getAllEmails({ limit, offset });
+    }
+
+    const client = await this.connect();
     
     try {
       // Resolve folder path (handles case-insensitivity and specialUse)
@@ -237,43 +339,32 @@ export class ImapService {
           flags: true,
           bodyStructure: true,
           size: true,
-        },
-        { changedSince: 0 }
+          headers: ['from'],
+        }
       )) {
         count++;
         if (count <= offset) continue;
         if (messages.length >= limit) break;
         
         messages.push({
-          uid: message.uid,
-          id: `${folder}-${message.uid}`,
+          uid: Number(message.uid),
+          id: `${resolvedFolder}-${Number(message.uid)}`,
           messageId: message.envelope?.messageId,
-          from: message.envelope?.from?.[0] ? {
-            name: message.envelope.from[0].name || '',
-            email: `${message.envelope.from[0].mailbox}@${message.envelope.from[0].host}`,
-          } : { name: '', email: '' },
-          to: (message.envelope?.to || []).map(addr => ({
-            name: addr.name || '',
-            email: `${addr.mailbox}@${addr.host}`,
-          })),
-          cc: (message.envelope?.cc || []).map(addr => ({
-            name: addr.name || '',
-            email: `${addr.mailbox}@${addr.host}`,
-          })),
-          bcc: (message.envelope?.bcc || []).map(addr => ({
-            name: addr.name || '',
-            email: `${addr.mailbox}@${addr.host}`,
-          })),
+          from: this._extractFrom(message.envelope, null, message.headers),
+          to: this._extractAddresses(message.envelope?.to),
+          cc: this._extractAddresses(message.envelope?.cc),
+          bcc: this._extractAddresses(message.envelope?.bcc),
           subject: message.envelope?.subject || '(no subject)',
           date: message.envelope?.date || new Date(),
           read: message.flags?.has('\\Seen') || false,
           starred: message.flags?.has('\\Flagged') || false,
           important: message.flags?.has('\\Important') || false,
           answered: message.flags?.has('\\Answered') || false,
-          size: message.size,
+          size: Number(message.size),
           hasAttachments: this.hasAttachments(message.bodyStructure),
           snippet: '', // Will be populated when fetching body
           labels: [folder.toLowerCase()],
+          folder: resolvedFolder,
         });
       }
       
@@ -284,6 +375,165 @@ export class ImapService {
         emails: messages,
         total: count,
         folder,
+        limit,
+        offset,
+      };
+    } finally {
+      await client.logout();
+    }
+  }
+
+  /**
+   * Get emails by a specific IMAP flag (for virtual folders like starred, important)
+   * Searches across all real folders
+   */
+  async _getEmailsByFlag(flag, virtualFolderName, { limit = 50, offset = 0 } = {}) {
+    const client = await this.connect();
+    const allMessages = [];
+    
+    try {
+      // Get all real folders to search across
+      const mailboxes = await client.list();
+      const foldersToSearch = mailboxes
+        .filter(box => !box.flags?.has('\\Noselect'))
+        .map(box => box.path);
+      
+      for (const folderPath of foldersToSearch) {
+        if (allMessages.length >= limit + offset) break;
+        
+        try {
+          await client.mailboxOpen(folderPath);
+          
+          // Search for messages with the specified flag
+          const flagSearch = flag === '\\Flagged' 
+            ? { flagged: true } 
+            : { keyword: flag.replace('\\', '$') };
+          
+          const matchingUids = await client.search(flagSearch, { uid: true });
+          
+          if (matchingUids.length === 0) continue;
+          
+          for await (const message of client.fetch(matchingUids, {
+            uid: true,
+            envelope: true,
+            flags: true,
+            bodyStructure: true,
+            size: true,
+            headers: ['from'],
+          })) {
+            allMessages.push({
+              uid: Number(message.uid),
+              id: `${folderPath}-${Number(message.uid)}`,
+              messageId: message.envelope?.messageId,
+              from: this._extractFrom(message.envelope, null, message.headers),
+              to: this._extractAddresses(message.envelope?.to),
+              cc: this._extractAddresses(message.envelope?.cc),
+              bcc: this._extractAddresses(message.envelope?.bcc),
+              subject: message.envelope?.subject || '(no subject)',
+              date: message.envelope?.date || new Date(),
+              read: message.flags?.has('\\Seen') || false,
+              starred: message.flags?.has('\\Flagged') || false,
+              important: message.flags?.has('\\Important') || false,
+              answered: message.flags?.has('\\Answered') || false,
+              size: Number(message.size),
+              hasAttachments: this.hasAttachments(message.bodyStructure),
+              snippet: '',
+              labels: [virtualFolderName],
+              folder: folderPath,
+            });
+          }
+        } catch (err) {
+          console.warn(`Failed to search ${folderPath} for flag ${flag}:`, err.message);
+        }
+      }
+      
+      // Sort by date descending
+      allMessages.sort((a, b) => new Date(b.date) - new Date(a.date));
+      
+      const sliced = allMessages.slice(offset, offset + limit);
+      
+      return {
+        emails: sliced,
+        total: allMessages.length,
+        folder: virtualFolderName,
+        limit,
+        offset,
+      };
+    } finally {
+      await client.logout();
+    }
+  }
+
+  /**
+   * Get all emails across all folders (for "All Mail" virtual folder)
+   */
+  async _getAllEmails({ limit = 50, offset = 0 } = {}) {
+    const client = await this.connect();
+    const allMessages = [];
+    
+    try {
+      const mailboxes = await client.list();
+      // Exclude Trash and Junk from "All Mail"
+      const foldersToSearch = mailboxes
+        .filter(box => 
+          !box.flags?.has('\\Noselect') &&
+          box.specialUse !== '\\Trash' &&
+          box.specialUse !== '\\Junk'
+        )
+        .map(box => box.path);
+      
+      for (const folderPath of foldersToSearch) {
+        try {
+          const mailbox = await client.mailboxOpen(folderPath);
+          
+          if (!mailbox.exists || mailbox.exists === 0) continue;
+          
+          for await (const message of client.fetch(
+            { all: true },
+            {
+              uid: true,
+              envelope: true,
+              flags: true,
+              bodyStructure: true,
+              size: true,
+              headers: ['from'],
+            }
+          )) {
+            allMessages.push({
+              uid: Number(message.uid),
+              id: `${folderPath}-${Number(message.uid)}`,
+              messageId: message.envelope?.messageId,
+              from: this._extractFrom(message.envelope, null, message.headers),
+              to: this._extractAddresses(message.envelope?.to),
+              cc: this._extractAddresses(message.envelope?.cc),
+              bcc: this._extractAddresses(message.envelope?.bcc),
+              subject: message.envelope?.subject || '(no subject)',
+              date: message.envelope?.date || new Date(),
+              read: message.flags?.has('\\Seen') || false,
+              starred: message.flags?.has('\\Flagged') || false,
+              important: message.flags?.has('\\Important') || false,
+              answered: message.flags?.has('\\Answered') || false,
+              size: Number(message.size),
+              hasAttachments: this.hasAttachments(message.bodyStructure),
+              snippet: '',
+              labels: ['all'],
+              folder: folderPath,
+            });
+          }
+        } catch (err) {
+          console.warn(`Failed to fetch from ${folderPath}:`, err.message);
+        }
+      }
+      
+      // Sort by date descending
+      allMessages.sort((a, b) => new Date(b.date) - new Date(a.date));
+      
+      const sliced = allMessages.slice(offset, offset + limit);
+      
+      return {
+        emails: sliced,
+        total: allMessages.length,
+        folder: 'all',
         limit,
         offset,
       };
@@ -310,7 +560,7 @@ export class ImapService {
         flags: true,
         bodyStructure: true,
         source: true,
-      });
+      }, { uid: true });
       
       if (!message) {
         throw new Error('Email not found');
@@ -324,43 +574,46 @@ export class ImapService {
         id: att.contentId || att.checksum,
         filename: att.filename,
         contentType: att.contentType,
-        size: att.size,
+        size: Number(att.size || 0),
         contentId: att.contentId,
       }));
       
+      // Use parsed (simpleParser) addresses - more reliable than envelope for full email view
+      const parsedTo = parsed.to?.value || [];
+      const parsedCc = parsed.cc?.value || [];
+      const parsedBcc = parsed.bcc?.value || [];
+
       return {
-        uid: message.uid,
-        id: `${folder}-${message.uid}`,
+        uid: Number(message.uid),
+        id: `${resolvedFolder}-${Number(message.uid)}`,
         messageId: message.envelope?.messageId,
-        from: message.envelope?.from?.[0] ? {
-          name: message.envelope.from[0].name || '',
-          email: `${message.envelope.from[0].mailbox}@${message.envelope.from[0].host}`,
-        } : { name: '', email: '' },
-        to: (message.envelope?.to || []).map(addr => ({
-          name: addr.name || '',
-          email: `${addr.mailbox}@${addr.host}`,
-        })),
-        cc: (message.envelope?.cc || []).map(addr => ({
-          name: addr.name || '',
-          email: `${addr.mailbox}@${addr.host}`,
-        })),
-        bcc: (message.envelope?.bcc || []).map(addr => ({
-          name: addr.name || '',
-          email: `${addr.mailbox}@${addr.host}`,
-        })),
-        replyTo: parsed.replyTo?.value?.[0] || null,
-        subject: message.envelope?.subject || '(no subject)',
-        date: message.envelope?.date || new Date(),
+        from: this._extractFrom(message.envelope, parsed.from),
+        to: parsedTo.length > 0
+          ? parsedTo.map(a => ({ name: a.name || '', email: a.address || '' })).filter(a => a.email)
+          : this._extractAddresses(message.envelope?.to),
+        cc: parsedCc.length > 0
+          ? parsedCc.map(a => ({ name: a.name || '', email: a.address || '' })).filter(a => a.email)
+          : this._extractAddresses(message.envelope?.cc),
+        bcc: parsedBcc.length > 0
+          ? parsedBcc.map(a => ({ name: a.name || '', email: a.address || '' })).filter(a => a.email)
+          : this._extractAddresses(message.envelope?.bcc),
+        replyTo: parsed.replyTo?.value?.[0] ? {
+          name: parsed.replyTo.value[0].name || '',
+          email: parsed.replyTo.value[0].address || '',
+        } : null,
+        subject: message.envelope?.subject || parsed.subject || '(no subject)',
+        date: message.envelope?.date || parsed.date || new Date(),
         read: message.flags?.has('\\Seen') || false,
         starred: message.flags?.has('\\Flagged') || false,
         important: message.flags?.has('\\Important') || false,
         answered: message.flags?.has('\\Answered') || false,
-        body: parsed.html || parsed.textAsHtml || '',
+        body: parsed.html || parsed.textAsHtml || parsed.text || '',
         textBody: parsed.text || '',
         snippet: (parsed.text || '').substring(0, 200),
         attachments,
         headers: Object.fromEntries(parsed.headers),
         labels: [folder.toLowerCase()],
+        folder: resolvedFolder,
       };
     } finally {
       await client.logout();
@@ -379,7 +632,7 @@ export class ImapService {
       
       const message = await client.fetchOne(uid, {
         source: true,
-      });
+      }, { uid: true });
       
       const parsed = await simpleParser(message.source);
       const attachment = parsed.attachments.find(
@@ -394,7 +647,7 @@ export class ImapService {
         filename: attachment.filename,
         contentType: attachment.contentType,
         content: attachment.content,
-        size: attachment.size,
+        size: Number(attachment.size || 0),
       };
     } finally {
       await client.logout();
@@ -412,9 +665,9 @@ export class ImapService {
       await client.mailboxOpen(resolvedFolder);
       
       if (read) {
-        await client.messageFlagsAdd(uid, ['\\Seen']);
+        await client.messageFlagsAdd(uid, ['\\Seen'], { uid: true });
       } else {
-        await client.messageFlagsRemove(uid, ['\\Seen']);
+        await client.messageFlagsRemove(uid, ['\\Seen'], { uid: true });
       }
       
       return { success: true };
@@ -434,9 +687,9 @@ export class ImapService {
       await client.mailboxOpen(resolvedFolder);
       
       if (starred) {
-        await client.messageFlagsAdd(uid, ['\\Flagged']);
+        await client.messageFlagsAdd(uid, ['\\Flagged'], { uid: true });
       } else {
-        await client.messageFlagsRemove(uid, ['\\Flagged']);
+        await client.messageFlagsRemove(uid, ['\\Flagged'], { uid: true });
       }
       
       return { success: true };
@@ -455,7 +708,7 @@ export class ImapService {
       const resolvedSource = await this.resolveFolderPath(sourceFolder, client);
       const resolvedTarget = await this.resolveFolderPath(targetFolder, client);
       await client.mailboxOpen(resolvedSource);
-      await client.messageMove(uid, resolvedTarget);
+      await client.messageMove(uid, resolvedTarget, { uid: true });
       
       return { success: true };
     } finally {
@@ -473,7 +726,7 @@ export class ImapService {
       const resolvedSource = await this.resolveFolderPath(sourceFolder, client);
       const resolvedTarget = await this.resolveFolderPath(targetFolder, client);
       await client.mailboxOpen(resolvedSource);
-      await client.messageCopy(uid, resolvedTarget);
+      await client.messageCopy(uid, resolvedTarget, { uid: true });
       
       return { success: true };
     } finally {
@@ -496,17 +749,17 @@ export class ImapService {
                         resolvedFolder.toLowerCase().includes('deleted');
       
       if (permanent || isInTrash) {
-        await client.messageDelete(uid);
+        await client.messageDelete(uid, { uid: true });
       } else {
         // Find trash folder using specialUse flag
         const mailboxes = await client.list();
         const trashBox = mailboxes.find(box => box.specialUse === '\\Trash');
         
         if (trashBox) {
-          await client.messageMove(uid, trashBox.path);
+          await client.messageMove(uid, trashBox.path, { uid: true });
         } else {
           // No trash folder found, permanently delete
-          await client.messageDelete(uid);
+          await client.messageDelete(uid, { uid: true });
         }
       }
       
@@ -547,18 +800,13 @@ export class ImapService {
         uid: true,
         envelope: true,
         flags: true,
+        headers: ['from'],
       })) {
         messages.push({
-          uid: message.uid,
-          id: `${folder}-${message.uid}`,
-          from: message.envelope?.from?.[0] ? {
-            name: message.envelope.from[0].name || '',
-            email: `${message.envelope.from[0].mailbox}@${message.envelope.from[0].host}`,
-          } : { name: '', email: '' },
-          to: (message.envelope?.to || []).map(addr => ({
-            name: addr.name || '',
-            email: `${addr.mailbox}@${addr.host}`,
-          })),
+          uid: Number(message.uid),
+          id: `${folder}-${Number(message.uid)}`,
+          from: this._extractFrom(message.envelope, null, message.headers),
+          to: this._extractAddresses(message.envelope?.to),
           subject: message.envelope?.subject || '(no subject)',
           date: message.envelope?.date || new Date(),
           read: message.flags?.has('\\Seen') || false,
@@ -636,11 +884,11 @@ export class ImapService {
       
       return {
         folder,
-        total: status.messages,
-        recent: status.recent,
-        unseen: status.unseen,
-        uidNext: status.uidNext,
-        uidValidity: status.uidValidity,
+        total: Number(status.messages),
+        recent: Number(status.recent),
+        unseen: Number(status.unseen),
+        uidNext: Number(status.uidNext),
+        uidValidity: Number(status.uidValidity),
       };
     } finally {
       await client.logout();
@@ -691,9 +939,9 @@ export class ImapService {
       const flags = ['$Important'];
       
       if (important) {
-        await client.messageFlagsAdd(uid, flags);
+        await client.messageFlagsAdd(uid, flags, { uid: true });
       } else {
-        await client.messageFlagsRemove(uid, flags);
+        await client.messageFlagsRemove(uid, flags, { uid: true });
       }
       
       return { success: true };
@@ -710,7 +958,7 @@ export class ImapService {
     
     try {
       await client.mailboxOpen(folder);
-      await client.messageFlagsAdd(uid, [label]);
+      await client.messageFlagsAdd(uid, [label], { uid: true });
       return { success: true };
     } finally {
       await client.logout();
@@ -725,7 +973,7 @@ export class ImapService {
     
     try {
       await client.mailboxOpen(folder);
-      await client.messageFlagsRemove(uid, [label]);
+      await client.messageFlagsRemove(uid, [label], { uid: true });
       return { success: true };
     } finally {
       await client.logout();
@@ -749,10 +997,10 @@ export class ImapService {
         // Create Archive folder if it doesn't exist
         await client.mailboxCreate('Archive');
         await client.mailboxOpen(folder);
-        await client.messageMove(uid, 'Archive');
+        await client.messageMove(uid, 'Archive', { uid: true });
       } else {
         await client.mailboxOpen(folder);
-        await client.messageMove(uid, archiveBox.path);
+        await client.messageMove(uid, archiveBox.path, { uid: true });
       }
       
       return { success: true };
@@ -778,10 +1026,10 @@ export class ImapService {
         // Create Spam folder if it doesn't exist
         await client.mailboxCreate('Spam');
         await client.mailboxOpen(folder);
-        await client.messageMove(uid, 'Spam');
+        await client.messageMove(uid, 'Spam', { uid: true });
       } else {
         await client.mailboxOpen(folder);
-        await client.messageMove(uid, spamBox.path);
+        await client.messageMove(uid, spamBox.path, { uid: true });
       }
       
       return { success: true };
@@ -798,7 +1046,7 @@ export class ImapService {
     
     try {
       await client.mailboxOpen(folder);
-      await client.messageMove(uid, 'INBOX');
+      await client.messageMove(uid, 'INBOX', { uid: true });
       return { success: true };
     } finally {
       await client.logout();
@@ -859,20 +1107,15 @@ export class ImapService {
             flags: true,
             bodyStructure: true,
             size: true,
+            headers: ['from'],
           }
         )) {
           messages.push({
-            uid: message.uid,
-            id: `${resolvedFolder}-${message.uid}`,
+            uid: Number(message.uid),
+            id: `${resolvedFolder}-${Number(message.uid)}`,
             messageId: message.envelope?.messageId,
-            from: message.envelope?.from?.[0] ? {
-              name: message.envelope.from[0].name || '',
-              email: `${message.envelope.from[0].mailbox}@${message.envelope.from[0].host}`,
-            } : { name: '', email: '' },
-            to: (message.envelope?.to || []).map(addr => ({
-              name: addr.name || '',
-              email: `${addr.mailbox}@${addr.host}`,
-            })),
+            from: this._extractFrom(message.envelope, null, message.headers),
+            to: this._extractAddresses(message.envelope?.to),
             subject: message.envelope?.subject || '(no subject)',
             date: message.envelope?.date || new Date(),
             read: message.flags?.has('\\Seen') || false,
@@ -917,16 +1160,17 @@ export class ImapService {
         uidNext: true,
       });
       
-      const hasNew = status.uidNext > knownUidNext;
+      const uidNext = Number(status.uidNext);
+      const hasNew = uidNext > knownUidNext;
       
       return {
         folder,
-        total: status.messages,
-        recent: status.recent,
-        unseen: status.unseen,
-        uidNext: status.uidNext,
+        total: Number(status.messages),
+        recent: Number(status.recent),
+        unseen: Number(status.unseen),
+        uidNext: uidNext,
         hasNew,
-        newCount: hasNew ? status.uidNext - knownUidNext : 0,
+        newCount: hasNew ? uidNext - knownUidNext : 0,
       };
     } finally {
       await client.logout();
@@ -954,16 +1198,14 @@ export class ImapService {
                 uid: true,
                 envelope: true,
                 flags: true,
+                headers: ['from'],
               }
             )) {
               allStarred.push({
-                uid: message.uid,
-                id: `${folder}-${message.uid}`,
+                uid: Number(message.uid),
+                id: `${folder}-${Number(message.uid)}`,
                 folder,
-                from: message.envelope?.from?.[0] ? {
-                  name: message.envelope.from[0].name || '',
-                  email: `${message.envelope.from[0].mailbox}@${message.envelope.from[0].host}`,
-                } : { name: '', email: '' },
+                from: this._extractFrom(message.envelope, null, message.headers),
                 subject: message.envelope?.subject || '(no subject)',
                 date: message.envelope?.date || new Date(),
                 read: message.flags?.has('\\Seen') || false,
@@ -1004,7 +1246,7 @@ export class ImapService {
         uid: true,
         envelope: true,
         source: true,
-      });
+      }, { uid: true });
       
       if (!targetMsg) {
         throw new Error('Email not found');
@@ -1040,24 +1282,18 @@ export class ImapService {
           const msgParsed = await simpleParser(message.source);
           
           threadMessages.push({
-            uid: message.uid,
-            id: `${folder}-${message.uid}`,
+            uid: Number(message.uid),
+            id: `${folder}-${Number(message.uid)}`,
             messageId: message.envelope?.messageId,
             inReplyTo: msgParsed.inReplyTo,
             references: msgParsed.references,
-            from: message.envelope?.from?.[0] ? {
-              name: message.envelope.from[0].name || '',
-              email: `${message.envelope.from[0].mailbox}@${message.envelope.from[0].host}`,
-            } : { name: '', email: '' },
-            to: (message.envelope?.to || []).map(addr => ({
-              name: addr.name || '',
-              email: `${addr.mailbox}@${addr.host}`,
-            })),
+            from: this._extractFrom(message.envelope, msgParsed.from),
+            to: this._extractAddresses(message.envelope?.to),
             subject: message.envelope?.subject || '(no subject)',
             date: message.envelope?.date || new Date(),
             read: message.flags?.has('\\Seen') || false,
             starred: message.flags?.has('\\Flagged') || false,
-            body: msgParsed.html || msgParsed.textAsHtml || '',
+            body: msgParsed.html || msgParsed.textAsHtml || msgParsed.text || '',
             textBody: msgParsed.text || '',
           });
         }
@@ -1088,7 +1324,7 @@ export class ImapService {
       
       // Then delete the old one
       await client.mailboxOpen(folder);
-      await client.messageDelete(oldUid);
+      await client.messageDelete(oldUid, { uid: true });
       
       return { success: true, uid: result.uid };
     } finally {
@@ -1132,9 +1368,9 @@ export class ImapService {
       await client.mailboxOpen(folder);
       
       if (add) {
-        await client.messageFlagsAdd(uids, flags);
+        await client.messageFlagsAdd(uids, flags, { uid: true });
       } else {
-        await client.messageFlagsRemove(uids, flags);
+        await client.messageFlagsRemove(uids, flags, { uid: true });
       }
       
       return { success: true, affected: uids.length };

@@ -1,36 +1,18 @@
-# Build stage
-FROM node:20-alpine AS builder
+FROM node:20-alpine
+
+# Install build tools for native dependencies (like better-sqlite3)
+RUN apk add --no-cache python3 make g++ build-base
 
 WORKDIR /app
 
 # Copy package files
-COPY package.json pnpm-lock.yaml* ./
+COPY package*.json ./
 
-# Install pnpm and dependencies
-RUN npm install -g pnpm && pnpm install --frozen-lockfile
+# Install dependencies
+RUN npm install --omit=dev
 
-# Copy source
+# Copy source code
 COPY . .
-
-# Production stage
-FROM node:20-alpine AS production
-
-WORKDIR /app
-
-# Create non-root user
-RUN addgroup -g 1001 -S nodejs && \
-    adduser -S novamail -u 1001
-
-# Copy from builder
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/package.json ./
-COPY --from=builder /app/knexfile.js ./
-COPY --from=builder /app/src ./src
-
-# Create data directory for SQLite
-RUN mkdir -p /app/data && chown -R novamail:nodejs /app
-
-USER novamail
 
 # Environment
 ENV NODE_ENV=production
@@ -42,4 +24,4 @@ EXPOSE 3001
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
   CMD node -e "fetch('http://localhost:3001/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
 
-CMD ["node", "src/index.js"]
+# Command is handled by docker-compose.yml
