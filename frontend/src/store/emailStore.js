@@ -237,7 +237,7 @@ export const useEmailStore = create((set, get) => ({
   folders: [],
   selectedEmail: null,
   selectedEmails: [],
-  selectedFolder: 'INBOX',
+  selectedFolder: 'inbox',
   searchQuery: '',
   isComposeOpen: false,
   composeData: null,
@@ -259,7 +259,7 @@ export const useEmailStore = create((set, get) => ({
     set({
       emails: [],
       selectedEmail: null,
-      selectedFolder: 'INBOX',
+      selectedFolder: 'inbox',
       folders: [],
       searchQuery: '',
       searchResults: null,
@@ -342,7 +342,7 @@ export const useEmailStore = create((set, get) => ({
   },
 
   // API Actions - Fetch emails from server
-  fetchEmails: async (folder = 'INBOX', options = {}) => {
+  fetchEmails: async (folder = 'inbox', options = {}) => {
     const { isApiEnabled } = get();
     if (!isApiEnabled) return;
     

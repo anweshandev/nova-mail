@@ -103,7 +103,7 @@ export const authApi = {
  * Emails API
  */
 export const emailsApi = {
-  async list(folder = 'INBOX', options = {}) {
+  async list(folder = 'inbox', options = {}) {
     const params = new URLSearchParams({
       folder,
       limit: options.limit || 50,
@@ -113,7 +113,7 @@ export const emailsApi = {
     return request(`/emails?${params}`);
   },
 
-  async search(query, folder = 'INBOX', limit = 50) {
+  async search(query, folder = 'inbox', limit = 50) {
     const params = new URLSearchParams({ q: query, folder, limit });
     return request(`/emails/search?${params}`);
   },
@@ -303,7 +303,7 @@ export const emailsApi = {
     });
   },
 
-  async sync(folder = 'INBOX', uidNext = null) {
+  async sync(folder = 'inbox', uidNext = null) {
     const params = new URLSearchParams({ folder });
     if (uidNext) params.append('uidNext', uidNext);
     return request(`/emails/sync?${params}`);
